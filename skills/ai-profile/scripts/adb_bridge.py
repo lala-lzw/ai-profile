@@ -28,6 +28,8 @@ class AdbBridge:
     def __init__(self, serial: Optional[str] = None):
         self.serial = serial or os.environ.get("ANDROID_SERIAL")
         self.adb_bin = shutil.which("adb") or "adb"
+        self._cached_env: Optional[dict[str, Any]] = None
+        self._cached_apps: Optional[list[dict[str, Any]]] = None
 
     def run(self, *args: str, timeout: Optional[float] = None) -> CommandResult:
         cmd = [self.adb_bin]
@@ -52,8 +54,11 @@ class AdbBridge:
         safe = cmd.replace('"', '\\"')
         return self.shell(f'su -c "{safe}"', timeout=timeout)
 
-    def prepare_device_env(self) -> dict[str, Any]:
-        """检查并准备设备底层环境：Root、SELinux Permissive、FastRPC 权限"""
+    def prepare_device_env(self, force_refresh: bool = False) -> dict[str, Any]:
+        """检查并准备设备底层环境：Root、SELinux Permissive、FastRPC 权限 (带缓存秒级返回)"""
+        if self._cached_env and not force_refresh:
+            return self._cached_env
+
         res = self.shell("getprop ro.product.model")
         model = res.stdout if res.ok else "Unknown"
 
@@ -69,11 +74,12 @@ class AdbBridge:
             s_res = self.shell("getenforce")
             selinux = s_res.stdout if s_res.ok else "Unknown"
 
-        return {
+        self._cached_env = {
             "model": model,
             "has_root": has_root,
             "selinux": selinux
         }
+        return self._cached_env
 
     def get_foreground_app(self) -> tuple[Optional[str], Optional[str]]:
         """检测当前真机前台运行的包名和主 Activity"""
@@ -94,14 +100,12 @@ class AdbBridge:
                             return pkg, act
         return None, None
 
-    def get_installed_apps(self) -> list[dict[str, Any]]:
-        """获取手机上已安装的可启动第三方游戏与应用列表"""
-        res = self.shell("pm list packages -3")
-        if not res.ok:
-            return []
+    def get_installed_apps(self, force_refresh: bool = False) -> list[dict[str, Any]]:
+        """极速单次获取手机上已安装的可启动第三方游戏与应用列表 (单指令毫秒级返回)"""
+        if self._cached_apps and not force_refresh:
+            return self._cached_apps
 
         fg_pkg, _ = self.get_foreground_app()
-        raw_pkgs = [line.replace("package:", "").strip() for line in res.stdout.splitlines() if line.strip()]
 
         # 友好别名映射表
         known_aliases = {
@@ -112,38 +116,42 @@ class AdbBridge:
             "org.cloud.sonic.android": "Sonic Agent"
         }
 
-        # 过滤掉非图形应用或调试辅助工具
-        ignore_prefixes = ("io.appium.", "org.renderdoc.", "com.qualcomm.")
-
+        # 1. 优先使用 Android 系统原生的单指令批量查询 (0.05秒全部返回)
+        res = self.shell("cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LAUNCHER")
         apps: list[dict[str, Any]] = []
-        for p in raw_pkgs:
-            if any(p.startswith(ign) for ign in ignore_prefixes):
-                continue
 
-            # 查询启动入口 Activity
-            act_res = self.shell(f"cmd package resolve-activity --brief {p}")
-            activity = ""
-            lines = act_res.stdout.strip().splitlines()
-            if len(lines) >= 2 and "/" in lines[-1]:
-                activity = lines[-1].strip()
+        if res.ok and "activities found" in res.stdout:
+            ignore_prefixes = ("com.android.", "com.google.", "com.miui.", "com.xiaomi.", "com.qualcomm.", "io.appium.", "org.renderdoc.")
+            seen_pkgs = set()
 
-            if not activity:
-                continue
+            for line in res.stdout.splitlines():
+                line = line.strip()
+                if "/" in line and not line.startswith("priority="):
+                    parts = line.split("/", 1)
+                    pkg = parts[0].strip()
+                    act = line
 
-            # 判断是否可能为游戏
-            is_game = any(k in p.lower() for k in ("game", "unity", "dhwd", "tmgp", "hypergryph", "mihoyo", "tencent", "netease", "epic", "unreal"))
-            name = known_aliases.get(p, p.split(".")[-1].capitalize())
+                    if pkg in seen_pkgs:
+                        continue
+                    seen_pkgs.add(pkg)
 
-            apps.append({
-                "package": p,
-                "name": name,
-                "activity": activity,
-                "is_game": is_game,
-                "is_foreground": (p == fg_pkg)
-            })
+                    # 仅保留第三方或游戏/重点应用
+                    is_game = any(k in pkg.lower() for k in ("game", "unity", "dhwd", "tmgp", "hypergryph", "mihoyo", "tencent", "netease", "epic", "unreal"))
+                    if any(pkg.startswith(ign) for ign in ignore_prefixes) and not is_game and pkg not in known_aliases:
+                        continue
+
+                    name = known_aliases.get(pkg, pkg.split(".")[-1].capitalize())
+                    apps.append({
+                        "package": pkg,
+                        "name": name,
+                        "activity": act,
+                        "is_game": is_game,
+                        "is_foreground": (pkg == fg_pkg)
+                    })
 
         # 排序：当前前台 > 游戏应用 > 其他应用
         apps.sort(key=lambda x: (not x["is_foreground"], not x["is_game"], x["name"]))
+        self._cached_apps = apps
         return apps
 
     def launch_app(self, package: str, kill_first: bool = False) -> bool:

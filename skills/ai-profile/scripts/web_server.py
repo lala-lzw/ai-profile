@@ -10,7 +10,7 @@ import os
 import sys
 import threading
 import time
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -420,7 +420,7 @@ class AiProfileHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(resp, ensure_ascii=False).encode("utf-8"))
 
 def start_server(port: int = 8088):
-    server = HTTPServer(("127.0.0.1", port), AiProfileHandler)
+    server = ThreadingHTTPServer(("127.0.0.1", port), AiProfileHandler)
     print(f"[AiProfile] Web 控制面板已启动: http://127.0.0.1:{port}")
     server.serve_forever()
 
