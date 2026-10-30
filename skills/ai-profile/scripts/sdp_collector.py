@@ -3,8 +3,7 @@
 """
 AiProfile Skill - 通用 Snapdragon Profiler (sdpcli) 硬件总线采样采集器
 直接驱动 Adreno GPU 物理性能计数器（DDR 读写带宽、时钟、UBWC、ALU、片元、温度、CPU频点等）。
-采用 Host-side 异步进程管理，支持超长周期（如 30min+）与高频率（如 5Hz/10Hz，100ms~200ms）持续采样，
-具备超时自愈、实时心跳监控与自动落盘回收能力。
+支持像 PerfDog 一样的连续采样生命周期（开始收集 -> 随时打标 -> 结束收集并落盘）。
 """
 
 import os
@@ -81,6 +80,86 @@ class SdpCollector:
         self.adb.shell(f"chmod -R 777 {REMOTE_SDPCLI_DIR}")
         return True
 
+    def start_continuous(
+        self,
+        remote_tmp_dir: str,
+        period_ms: int = 200,
+        metric_ids: Optional[str] = None
+    ) -> subprocess.Popen:
+        """
+        在设备端启动无固定时长的持续物理采样（类似 PerfDog 点击开始）
+        采用 SIGINT 可控中断，确保停止时数据完整刷新落盘。
+        """
+        self.prepare_device_daemon()
+        self.adb.shell("killall -9 sdpcli 2>/dev/null")
+        self.adb.shell(f"rm -rf {remote_tmp_dir} && mkdir -p {remote_tmp_dir}")
+
+        selected_metrics = metric_ids or DEFAULT_METRIC_IDS
+        command = (
+            f"cd {REMOTE_SDPCLI_DIR} && "
+            f"LD_LIBRARY_PATH={REMOTE_SDPCLI_DIR} "
+            f"./sdpcli r c -p {period_ms} -o {remote_tmp_dir} '{selected_metrics}'"
+        )
+
+        adb_cmd = [self.adb.adb_bin]
+        if self.adb.serial:
+            adb_cmd.extend(["-s", self.adb.serial])
+        adb_cmd.extend(["shell", command])
+
+        proc = subprocess.Popen(
+            adb_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace"
+        )
+        return proc
+
+    def stop_continuous(
+        self,
+        remote_tmp_dir: str,
+        output_csv: Path,
+        proc: Optional[subprocess.Popen] = None,
+        timeout: float = 15.0
+    ) -> Path:
+        """
+        停止持续采样（类似 PerfDog 点击结束），优雅通知 sdpcli 刷新缓冲区并拉取最终 CSV
+        """
+        # 发送 SIGINT 让 sdpcli 优雅 flush 缓冲区
+        self.adb.shell("killall -2 sdpcli 2>/dev/null")
+        time.sleep(1.2)
+
+        if proc:
+            try:
+                proc.terminate()
+                proc.wait(timeout=2.0)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+
+        # 确保全部终止
+        self.adb.shell("killall -9 sdpcli 2>/dev/null")
+
+        # 查找生成的 CSV
+        listing = self.adb.shell(f"find {remote_tmp_dir} -maxdepth 1 -type f -name '*.csv'")
+        remote_csv = next((line.strip() for line in listing.stdout.splitlines() if line.strip().endswith(".csv")), "")
+
+        if not remote_csv:
+            self.adb.shell(f"rm -rf {remote_tmp_dir}")
+            raise RuntimeError(f"采样停止后未在 {remote_tmp_dir} 中找到生成的 CSV 文件。")
+
+        output_csv.parent.mkdir(parents=True, exist_ok=True)
+        pull_res = self.adb.run("pull", remote_csv, str(output_csv), timeout=timeout)
+        self.adb.shell(f"rm -rf {remote_tmp_dir}")
+
+        if not pull_res.ok or not output_csv.exists() or output_csv.stat().st_size == 0:
+            raise RuntimeError(f"从设备拉取 CSV 失败: {pull_res.stderr or pull_res.stdout}")
+
+        return output_csv
+
     def capture(
         self,
         package: str,
@@ -90,71 +169,23 @@ class SdpCollector:
         metric_ids: Optional[str] = None,
         warmup_s: float = 1.0,
     ) -> Path:
-        """
-        执行硬件物理计数器采样并导出 CSV
-        - duration_s: 采样持续时间（秒），如 1800 代表 30 分钟
-        - period_ms: 采样间隔（毫秒），如 200 代表每秒 5 次 (5 Hz)
-        - metric_ids: 待采样的指标 ID 列表
-        """
-        self.prepare_device_daemon()
-
+        """指定固定时长的采样便捷接口"""
         if warmup_s > 0:
             time.sleep(warmup_s)
 
-        output_csv.parent.mkdir(parents=True, exist_ok=True)
-        selected_metrics = metric_ids or DEFAULT_METRIC_IDS
-
-        # 清理旧的残留 sdpcli
-        self.adb.shell("killall -9 sdpcli 2>/dev/null")
-
         ts = int(time.time() * 1000)
         remote_tmp_dir = f"{REMOTE_SDPCLI_DIR}/run_{ts}"
-        self.adb.shell(f"mkdir -p {remote_tmp_dir}")
-
-        duration_ms = int(duration_s * 1000)
-        expected_rows = int(duration_ms / period_ms)
-
-        command = (
-            f"cd {REMOTE_SDPCLI_DIR} && "
-            f"LD_LIBRARY_PATH={REMOTE_SDPCLI_DIR} "
-            f"./sdpcli r c -d {duration_ms} -p {period_ms} -o {remote_tmp_dir} '{selected_metrics}'"
-        )
-
-        adb_cmd = [self.adb.adb_bin]
-        if self.adb.serial:
-            adb_cmd.extend(["-s", self.adb.serial])
-        adb_cmd.extend(["shell", command])
-
-        # 在宿主机端启动异步子进程执行 ADB 会话
-        proc = subprocess.Popen(
-            adb_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace"
-        )
+        proc = self.start_continuous(remote_tmp_dir, period_ms=period_ms, metric_ids=metric_ids)
 
         start_time = time.time()
         last_heartbeat = start_time
         poll_interval = 2.0 if duration_s >= 60.0 else 0.5
-        remote_csv = ""
-        row_count = 0
+        expected_rows = int(duration_s * 1000 / period_ms)
 
-        # 监控进度与心跳
         while True:
             time.sleep(poll_interval)
             elapsed = time.time() - start_time
 
-            # 检查是否有 CSV 生成
-            if not remote_csv:
-                listing = self.adb.shell(f"find {remote_tmp_dir} -maxdepth 1 -type f -name '*.csv'")
-                for line in listing.stdout.splitlines():
-                    if line.strip().endswith(".csv"):
-                        remote_csv = line.strip()
-                        break
-
-            # 若是长周期采样（>=30秒），定期汇报心跳、行数与真机温度
             if duration_s >= 30.0 and (time.time() - last_heartbeat >= 15.0):
                 pct = min(100.0, (elapsed / duration_s) * 100.0)
                 temp_c = 0.0
@@ -163,61 +194,13 @@ class SdpCollector:
                     raw_t = float(t_res.stdout)
                     temp_c = raw_t / 1000.0 if raw_t > 1000 else raw_t
 
-                if remote_csv:
-                    wc = self.adb.shell(f"wc -l {remote_csv}")
-                    parts = wc.stdout.strip().split()
-                    if parts and parts[0].isdigit():
-                        row_count = max(0, int(parts[0]) - 1)
-
                 print(
                     f"[Profile 进度 {pct:4.1f}%] 已采 {elapsed:5.1f}s / {duration_s:.0f}s | "
-                    f"样本: {row_count:5d}/{expected_rows:5d} 行 | 瞬时温度: {temp_c:.1f}°C"
+                    f"瞬时温度: {temp_c:.1f}°C"
                 )
                 last_heartbeat = time.time()
 
-            # 时间达到采样时长后优雅结束
-            if elapsed >= duration_s + 0.5:
+            if elapsed >= duration_s:
                 break
 
-        # 终结进程并杀死设备端采样
-        try:
-            proc.terminate()
-            proc.wait(timeout=2.0)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-
-        self.adb.shell("killall -9 sdpcli 2>/dev/null")
-
-        # 确定最终 remote_csv
-        if not remote_csv:
-            listing = self.adb.shell(f"find {remote_tmp_dir} -maxdepth 1 -type f -name '*.csv'")
-            for line in listing.stdout.splitlines():
-                if line.strip().endswith(".csv"):
-                    remote_csv = line.strip()
-                    break
-
-        if not remote_csv:
-            self.adb.shell(f"rm -rf {remote_tmp_dir}")
-            raise RuntimeError("sdpcli 采样未生成有效 CSV 文件。")
-
-        # 获取最终行数
-        wc_final = self.adb.shell(f"wc -l {remote_csv}")
-        if wc_final.ok and wc_final.stdout.strip():
-            parts = wc_final.stdout.strip().split()
-            if parts and parts[0].isdigit():
-                row_count = max(0, int(parts[0]) - 1)
-
-        # 拉取文件到本地
-        pull_res = self.adb.run("pull", remote_csv, str(output_csv), timeout=max(30.0, duration_s * 0.1 + 30.0))
-        self.adb.shell(f"rm -rf {remote_tmp_dir}")
-
-        if not pull_res.ok or not output_csv.exists() or output_csv.stat().st_size == 0:
-            raise RuntimeError(f"从设备拉取 CSV 失败: {pull_res.stderr or pull_res.stdout}")
-
-        total_elapsed = time.time() - start_time
-        file_size_kb = output_csv.stat().st_size / 1024.0
-        print(f"[Profile] 采样完成！总耗时: {total_elapsed:.1f}s | 生成数据: {output_csv.name} ({file_size_kb:.1f} KB, 共 {row_count} 行样本)")
-        return output_csv
+        return self.stop_continuous(remote_tmp_dir, output_csv, proc=proc)

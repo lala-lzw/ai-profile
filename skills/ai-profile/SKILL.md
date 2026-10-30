@@ -3,7 +3,8 @@ name: ai-profile
 description: >-
   移动端 GPU 硬件性能自动化采样、Snapdragon Profiler 总线对账与多画质梯次分析公共技能。
   当用户要求测试 Android 手机真机 GPU 性能、采集总线物理带宽 (DDR 读写)、获取单帧 MB/帧、分析 UBWC 压缩率、
-  进行免侵入原地 Attach 采样、对账 Snapdragon Profiler 截帧 CSV、或将性能测试自动化带入新项目组时使用。
+  进行免侵入原地 Attach 采样、对账 Snapdragon Profiler 截帧 CSV、按类似 PerfDog 方式交互式打标签采样、
+  或将性能测试自动化带入新项目组时使用。
 ---
 
 # AiProfile — 移动端 GPU 硬件性能自动化与总线对账技能
@@ -16,26 +17,64 @@ description: >-
 
 脚本位置：`C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py`
 
-### 1. 模式 A：黑盒免侵入原地挂载采样（最常用，零代码侵入）
-对任意正在真机前台运行的游戏（无论有无源码、发行包或竞品），**无需重启应用、不杀进程、不重置机位**，直接原地挂载采样：
+### 1. 模式 A：PerfDog 交互录制模式（点击即开始，回车即打标，输入 q 结束）
+像 PerfDog 一样自由控制时长，边在手机上玩游戏，边在电脑键盘上随时敲回车打标签（例如标记“进副本”、“团战开始”、“释放大招”、“回城”）：
 
 ```powershell
-# 自动识别当前前台游戏，原地挂载采样 3 秒：
-python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py run --attach --tag "场景名_画质名"
+# 启动交互式录制模式（自动锁定手机前台应用，每秒采样 5 次）：
+python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py record --tag "大世界实测"
 
-# 显式指定包名采样：
-python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py run --package com.xxx.game --attach --tag "极高配"
+# 操作指南：
+# 1. 直接输入标签名称并回车 -> 为当前时间点打标签 (Marker)
+# 2. 输入 'q' / 'stop' 或按 Ctrl+C -> 停止收集，自动拉取数据并生成分段画像与时间轴图表
 ```
 
-产物输出在目标测试目录：
-- `capture.png`：瞬时机位截屏证据；
-- `summary.md`：核心物理对账大表（DDR 读写、单帧 MB/帧、UBWC 压缩率）；
-- `summary.json`：全量硬件计数器结构化数据；
-- `raw/sdp_xxx.csv`：Adreno 原始采样数据。
+产物输出：
+- `capture.png`：测试机位截图；
+- `summary.md`：全景物理对账报告，包含**PerfDog 分段标签对比大表**；
+- `timeline.html`：单文件完全离线的 HTML5 交互式走势图（带垂直标签指示线）；
+- `raw/sdp_xxx_labeled.csv`：逐行打上当前阶段标签的增强 CSV 数据。
 
 ---
 
-### 2. 模式 B：截帧 CSV 相机聚合与对账（消除 Excel SUM 虚高）
+### 2. 模式 B：PerfDog 桌面悬浮控制面板 (Tkinter GUI)
+提供免命令行的桌面图形小浮窗，包含【▶ 开始收集】、【🏷️ 打标签】输入框、【⏹ 结束收集】大按钮：
+
+```powershell
+python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py gui
+```
+- 点击开始后实时显示采样计时与瞬时真机温度；
+- 支持回车快速打标签与预设标签一键标记；
+- 点击结束自动打开 HTML 走势图与分析报告。
+
+---
+
+### 3. 模式 C：分立生命周期命令（适合自动化脚本与 Agent 工具链）
+支持非阻塞后台会话，由外部测试脚本在特定事件发生时打标签：
+
+```powershell
+# 1. 后台启动采样会话：
+python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py start --tag "Boss战"
+
+# 2. 随时打标签：
+python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py mark "全屏特效爆发"
+
+# 3. 随时结束并生成分段报告：
+python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py stop
+```
+
+---
+
+### 4. 模式 D：固定时长单次快照采样
+针对标准化稳态性能测试，直接采集指定时长（如 3 秒或 1800 秒）：
+
+```powershell
+python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py run --attach --duration 3.0 --period 200 --tag "极高配"
+```
+
+---
+
+### 5. 模式 E：截帧 CSV 相机聚合与对账（消除 Excel SUM 虚高）
 当用户提供 Snapdragon Profiler GUI 导出的截帧 CSV（如 `fs_l.csv`）时，直接提取各相机根节点并求和（Main Camera + UICamera），消除父子 Marker 重复累加：
 
 ```powershell
@@ -44,7 +83,7 @@ python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py f
 
 ---
 
-### 3. 模式 C：跨项目组落地（Unity 3 分钟极简嵌入）
+### 6. 模式 F：跨项目组落地（Unity 3 分钟极简嵌入）
 当新项目组需要接入全自动切画质跑分时：
 1. 将 `C:/Users/user/.gemini/config/skills/ai-profile/agent_sdk/AiProfileAgent.cs` 复制到项目工程 `Assets/Scripts/`；
 2. 游戏启动时绑定项目自己的切画质单例：
@@ -65,4 +104,3 @@ python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py f
 3. **写总访存穿透比约为 1.55x ~ 1.66x**：对应 Framebuffer UBWC 写入压缩过滤；
 4. **片元与指令穿透比约为 1.5x ~ 1.8x**：截帧静态瞬间展开 vs 稳态运行动态遮挡剔除的合理差异。
 详细物理机理参考：[对账准则](references/verification_rules.md)。
-

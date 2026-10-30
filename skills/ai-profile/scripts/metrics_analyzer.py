@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 AiProfile Skill - 硬件计数器统计与物理指标对账分析器 (MetricsAnalyzer)
-解析 raw CSV、计算 UBWC 硬件无损压缩率、按帧率折算物理单帧指标，并给出瓶颈诊断。
+解析 raw CSV、支持按 PerfDog 标签切分时间轴、计算分段与全景 UBWC 压缩率、
+按帧率折算物理单帧指标，并输出打标后的增强 CSV。
 """
 
 import csv
@@ -26,31 +27,8 @@ class MetricsAnalyzer:
     def __init__(self, fps_baseline: float = 60.0):
         self.fps_baseline = fps_baseline
 
-    def parse_sdp_csv(self, csv_path: Path) -> dict[str, Any]:
-        """解析 sdpcli 导出的 CSV 文件并提取核心统计指标"""
-        if not csv_path.exists():
-            raise FileNotFoundError(f"找不到 CSV 文件: {csv_path}")
-
-        series: dict[str, list[float]] = {}
-        row_count = 0
-
-        with open(csv_path, "r", encoding="utf-8-sig", errors="ignore") as f:
-            reader = csv.DictReader(f)
-            headers = [c.strip() for c in reader.fieldnames if c]
-            for h in headers:
-                series[h] = []
-
-            for row in reader:
-                row_count += 1
-                for h in headers:
-                    val_s = row.get(h) or row.get(" " + h)
-                    if val_s and val_s.strip() != "N/A":
-                        try:
-                            val = float(val_s.strip())
-                            series[h].append(val)
-                        except ValueError:
-                            pass
-
+    def _calc_metrics_from_series(self, series: dict[str, list[float]], row_count: int) -> dict[str, Any]:
+        """从数据序列中计算统计指标与整帧换算"""
         stats: dict[str, dict[str, float]] = {}
         for h, vals in series.items():
             if vals:
@@ -114,6 +92,7 @@ class MetricsAnalyzer:
         gpu_util = stats.get("GPU % Utilization", {}).get("mean", 0.0)
         gpu_clk = stats.get("Clocks / Second", {}).get("mean", 0.0) / 1e6
         frag_shaded_m = frame_metrics.get("Fragments Shaded / Second", {}).get("frame_m", 0.0)
+        temp_c = stats.get("Temperature", {}).get("mean", 0.0)
 
         diagnosis = []
         if total_bw_mb > 1500.0:
@@ -122,6 +101,8 @@ class MetricsAnalyzer:
             diagnosis.append(f"纹理读取占总读取的 {round(tex_read_mb/total_read_mb*100, 1)}%（材质贴图采样为核心带宽瓶颈）")
         if ubwc_pct > 65.0:
             diagnosis.append(f"UBWC 硬件压缩率达到 {ubwc_pct}%（硬件总线压缩利用充分）")
+        if temp_c > 48.0:
+            diagnosis.append(f"SoC 温度均值高达 {temp_c}°C，已触及温控降频敏感区")
 
         return {
             "row_count": row_count,
@@ -135,8 +116,127 @@ class MetricsAnalyzer:
             "gpu_clk_mhz": round(gpu_clk, 2),
             "fragments_frame_m": frag_shaded_m,
             "ubwc_compressed_pct": ubwc_pct,
+            "temperature_c": temp_c,
             "diagnosis": diagnosis,
             "frame_metrics": frame_metrics,
             "raw_stats": stats
         }
 
+    def parse_sdp_csv(
+        self,
+        csv_path: Path,
+        labels: Optional[list[dict[str, Any]]] = None,
+        period_ms: int = 200
+    ) -> dict[str, Any]:
+        """
+        解析 sdpcli 导出的 CSV 文件并提取核心统计指标
+        - labels: 可选的 PerfDog 模式时间轴标签列表，形如 [{'name': '团战', 'time_s': 12.4}, ...]
+        """
+        if not csv_path.exists():
+            raise FileNotFoundError(f"找不到 CSV 文件: {csv_path}")
+
+        raw_rows: list[dict[str, Any]] = []
+        all_series: dict[str, list[float]] = {}
+        headers: list[str] = []
+
+        with open(csv_path, "r", encoding="utf-8-sig", errors="ignore") as f:
+            reader = csv.DictReader(f)
+            headers = [c.strip() for c in reader.fieldnames if c]
+            for h in headers:
+                all_series[h] = []
+
+            for row in reader:
+                parsed_row: dict[str, Any] = {}
+                for h in headers:
+                    val_s = row.get(h) or row.get(" " + h)
+                    val = None
+                    if val_s and val_s.strip() != "N/A":
+                        try:
+                            val = float(val_s.strip())
+                            all_series[h].append(val)
+                        except ValueError:
+                            pass
+                    parsed_row[h] = val
+                raw_rows.append(parsed_row)
+
+        overall = self._calc_metrics_from_series(all_series, len(raw_rows))
+
+        # 处理 PerfDog 模式的标签分段画像
+        segments: list[dict[str, Any]] = []
+        labeled_csv_path: Optional[Path] = None
+
+        if labels and raw_rows:
+            # 排序标签
+            sorted_labels = sorted(labels, key=lambda x: x.get("time_s", 0.0))
+            
+            # 为每个样本行打上 Label
+            # 样本的时刻 (秒) = 行号 * (period_ms / 1000.0)
+            sec_per_row = period_ms / 1000.0
+            
+            # 构建分段区间: [(label_name, start_idx, end_idx)]
+            intervals: list[tuple[str, int, int, float, float]] = []
+            
+            first_label_time = sorted_labels[0].get("time_s", 0.0)
+            first_idx = min(len(raw_rows), max(0, int(first_label_time / sec_per_row)))
+            
+            if first_idx > 0:
+                intervals.append(("初始阶段", 0, first_idx, 0.0, first_label_time))
+            
+            for i, lb in enumerate(sorted_labels):
+                name = lb.get("name", f"Tag_{i+1}")
+                st_time = lb.get("time_s", 0.0)
+                st_idx = min(len(raw_rows), max(0, int(st_time / sec_per_row)))
+                
+                if i + 1 < len(sorted_labels):
+                    end_time = sorted_labels[i+1].get("time_s", 0.0)
+                    end_idx = min(len(raw_rows), max(st_idx, int(end_time / sec_per_row)))
+                else:
+                    end_time = len(raw_rows) * sec_per_row
+                    end_idx = len(raw_rows)
+                    
+                intervals.append((name, st_idx, end_idx, st_time, end_time))
+
+            # 写入带 Label 列的增强 CSV
+            labeled_csv_path = csv_path.parent / f"{csv_path.stem}_labeled.csv"
+            with open(labeled_csv_path, "w", newline="", encoding="utf-8-sig") as out_f:
+                writer = csv.writer(out_f)
+                writer.writerow(["Time (s)", "PerfDog Label", *headers])
+                
+                for idx, r in enumerate(raw_rows):
+                    cur_time = round(idx * sec_per_row, 3)
+                    # 查找对应 label
+                    cur_label = ""
+                    for (lbl_name, s_idx, e_idx, _, _) in intervals:
+                        if s_idx <= idx < e_idx:
+                            cur_label = lbl_name
+                            break
+                    if not cur_label and intervals:
+                        cur_label = intervals[-1][0]
+                    
+                    row_vals = [cur_time, cur_label]
+                    for h in headers:
+                        row_vals.append(r.get(h, ""))
+                    writer.writerow(row_vals)
+
+            # 计算各分段画像指标
+            for (lbl_name, s_idx, e_idx, s_time, e_time) in intervals:
+                seg_rows = raw_rows[s_idx:e_idx]
+                if not seg_rows:
+                    continue
+                seg_series: dict[str, list[float]] = {h: [] for h in headers}
+                for r in seg_rows:
+                    for h in headers:
+                        val = r.get(h)
+                        if val is not None:
+                            seg_series[h].append(val)
+                seg_summary = self._calc_metrics_from_series(seg_series, len(seg_rows))
+                seg_summary["label_name"] = lbl_name
+                seg_summary["start_time_s"] = round(s_time, 1)
+                seg_summary["end_time_s"] = round(e_time, 1)
+                seg_summary["duration_s"] = round(e_time - s_time, 1)
+                segments.append(seg_summary)
+
+        overall["segments"] = segments
+        overall["labels"] = labels or []
+        overall["labeled_csv"] = str(labeled_csv_path) if labeled_csv_path else None
+        return overall
