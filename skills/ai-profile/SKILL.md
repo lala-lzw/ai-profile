@@ -2,14 +2,29 @@
 name: ai-profile
 description: >-
   移动端 GPU 硬件性能自动化采样、Snapdragon Profiler 总线对账与多画质梯次分析公共技能。
+  支持在聊天框输入 /AI_profile:start、/ai-profile:start、/profile-start 等快捷指令即时开始采样。
   当用户要求测试 Android 手机真机 GPU 性能、采集总线物理带宽 (DDR 读写)、获取单帧 MB/帧、分析 UBWC 压缩率、
   进行免侵入原地 Attach 采样、对账 Snapdragon Profiler 截帧 CSV、按类似 PerfDog 方式交互式打标签采样、
-  或将性能测试自动化带入新项目组时使用。
+  或输入快捷启停指令时使用。
 ---
 
 # AiProfile — 移动端 GPU 硬件性能自动化与总线对账技能
 
 本技能为所有 Agent 提供跨项目的移动端 GPU 硬件物理性能自动化测试与对账能力。底层驱动 Qualcomm Snapdragon Profiler 硬件计数器与 Android OS 系统接口，测量真实的系统总线 DDR 带宽、片元着色量、UBWC 硬件无损压缩率与显存/内存水位。
+
+---
+
+## 零、 聊天框极速快捷指令 (Slash Commands)
+
+当用户在 Agent 聊天输入框中输入以下快捷指令时，**Agent 应直接无缝执行对应底层命令，无需二次确认或闲聊，秒级反馈执行结果**：
+
+| 聊天框快捷输入 | 对应底层执行命令 | 作用说明 |
+| :--- | :--- | :--- |
+| `/AI_profile:start` 或 `/ai-profile:start`、`/profile-start` | `profile-start` | 自动锁定真机前台运行的游戏，启动后台硬件高频物理采样（5Hz/200ms） |
+| `/AI_profile:start --launch` | `profile-start --launch` | 启动采样前，先在手机上唤醒并拉起该游戏应用 |
+| `/AI_profile:mark <标签名称>` 或 `/profile-mark <标签>` | `profile-mark <标签>` | 为当前正在采样的测试会话记录时间轴标记（如打怪、切图、进副本） |
+| `/AI_profile:stop` 或 `/ai-profile:stop`、`/profile-stop` | `profile-stop` | 立即停止采样、拉取数据、自动在浏览器打开走势图并呈现分段画像总结 |
+| `/AI_profile:gui` 或 `/profile-gui` | `profile-gui` | 极速秒开 PerfDog 风格的独立桌面悬浮控制面板 |
 
 ---
 
