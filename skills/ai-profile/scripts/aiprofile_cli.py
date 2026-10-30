@@ -224,18 +224,20 @@ def main():
     # 2. 类似 PerfDog 的桌面悬浮窗 GUI
     subparsers.add_parser("gui", help="【PerfDog 桌面小窗口】打开悬浮控制面板进行点击/打标")
 
-    # 3. 分立生命周期命令 (适合自动化脚本)
+    # 3. 分立生命周期命令 (适合自动化脚本与快捷命令)
     start_p = subparsers.add_parser("start", help="后台启动采样会话")
-    start_p.add_argument("--package", help="目标应用包名", default=None)
+    start_p.add_argument("--package", help="目标应用包名 (省略则自动锁定当前前台)", default=None)
     start_p.add_argument("--tag", help="会话标签", default="LiveSession")
-    start_p.add_argument("--period", type=int, default=200, help="采样周期 (ms)")
-    start_p.add_argument("--fps", type=float, default=60.0, help="基准帧率")
+    start_p.add_argument("--period", type=int, default=200, help="采样周期 (ms，默认 200)")
+    start_p.add_argument("--fps", type=float, default=60.0, help="基准帧率 (默认 60.0)")
+    start_p.add_argument("--launch", action="store_true", default=False, help="启动前先在手机上拉起该游戏")
     start_p.add_argument("--out", type=Path, default=None, help="输出目录")
 
     mark_p = subparsers.add_parser("mark", help="为当前活跃会话打标签")
-    mark_p.add_argument("label", type=str, help="标签文本 (如 'Boss战', '放技能')")
+    mark_p.add_argument("label", nargs="?", default="Marker", type=str, help="标签文本 (如 '鸿都城', '放技能')")
 
-    subparsers.add_parser("stop", help="停止活跃会话，拉取数据并产出报表")
+    stop_p = subparsers.add_parser("stop", help="停止活跃会话，拉取数据并产出报表")
+    stop_p.add_argument("--no-open", action="store_true", default=False, help="完成后不自动在浏览器打开走势图")
 
     # 4. 固定时长单次采样
     run_p = subparsers.add_parser("run", help="执行固定时长的 GPU Profile 物理采样")
@@ -267,29 +269,77 @@ def main():
         gui_main()
     elif args.cmd == "start":
         mgr = SessionManager()
-        s = mgr.start_session(
-            package=args.package,
-            tag=args.tag,
-            period_ms=args.period,
-            fps=args.fps,
-            output_dir=args.out
-        )
-        print(f"[AiProfile] 会话已启动！")
-        print(f"-> 目标应用: {s['package']}")
-        print(f"-> 采样周期: {s['period_ms']}ms")
-        print(f"-> 打标签命令: python aiprofile_cli.py mark <标签名称>")
-        print(f"-> 结束命令:   python aiprofile_cli.py stop")
+        if mgr.is_session_active():
+            cur = mgr.get_current_session()
+            print(f"[AiProfile] ⚠️ 当前已有一个正在运行的采样会话！")
+            print(f"-> 目标应用: {cur.get('package')}")
+            print(f"-> 打标签命令: profile-mark <标签名>")
+            print(f"-> 结束命令:   profile-stop")
+            return
+
+        try:
+            s = mgr.start_session(
+                package=args.package,
+                tag=args.tag,
+                period_ms=args.period,
+                fps=args.fps,
+                launch=args.launch,
+                output_dir=args.out
+            )
+            print("\n" + "=" * 65)
+            print(f"  🚀 AiProfile - 硬件性能采样已启动！")
+            print("=" * 65)
+            print(f"-> 目标应用: {s['package']}")
+            print(f"-> 采样频率: 每秒 {1000/s['period_ms']:.1f} 次 ({s['period_ms']}ms 周期)")
+            print(f"-> 打标签:   profile-mark <标签名称>  (或 aiprofile mark <标签>)")
+            print(f"-> 结束采样: profile-stop             (或 aiprofile stop)")
+            print("-" * 65 + "\n")
+        except Exception as e:
+            print(f"[AiProfile 启动失败]: {e}")
+
     elif args.cmd == "mark":
         mgr = SessionManager()
+        if not mgr.is_session_active():
+            print("[AiProfile] ⚠️ 当前没有正在运行的采样会话！请先执行 profile-start。")
+            return
         m = mgr.add_marker(args.label)
-        print(f"[AiProfile] 打标签成功: +{m['time_s']:.1f}s -> 【🏷️ {m['name']}】")
+        print(f"[AiProfile] 🏷️ 成功记录时间轴标签: +{m['time_s']:.1f}s -> 【{m['name']}】")
+
     elif args.cmd == "stop":
         mgr = SessionManager()
-        res = mgr.stop_session()
-        print(f"[AiProfile] 会话已结束并完成汇总！")
-        print(f"-> 采样时长: {res['duration_s']}s | 标签数: {res['labels_count']}")
-        print(f"-> 报告路径: {res['report_path']}")
-        print(f"-> 时间轴图表: {res['timeline_html']}")
+        if not mgr.is_session_active():
+            print("[AiProfile] ⚠️ 当前没有运行中的采样会话！")
+            return
+
+        print("\n[AiProfile] ⏹ 正在停止采样、拉取数据并切分分段画像...")
+        try:
+            res = mgr.stop_session()
+            print("\n" + "=" * 65)
+            print("  🎉 采样完成并已产出完整报表！")
+            print("=" * 65)
+            print(f"-> 采样总时长: {res['duration_s']} 秒 | 记录标签: {res['labels_count']} 个")
+            print(f"-> 报告文件:   {res['report_path'].resolve()}")
+            print(f"-> 走势图表:   {res['timeline_html'].resolve()}")
+            if res.get("labeled_csv"):
+                print(f"-> 增强 CSV:   {Path(res['labeled_csv']).name}")
+
+            ov = res["metrics"]
+            print(f"\n[整场物理均值]")
+            print(f"   DDR 读写总带宽: {ov['total_bw_sec_mb']} MB/s (单帧 {ov['total_bw_frame_mb']} MB/帧)")
+            print(f"   UBWC 压缩率: {ov['ubwc_compressed_pct']}% | GPU 频点: {ov['gpu_clk_mhz']} MHz")
+
+            segs = ov.get("segments", [])
+            if segs:
+                print(f"\n[PerfDog 标签分段对比]")
+                for s in segs:
+                    print(f"   🏷️ {s['label_name']:12s} ({s['duration_s']:4.1f}s) -> DDR带宽: {s['total_bw_sec_mb']:6.1f} MB/s ({s['total_bw_frame_mb']:4.1f} MB/帧) | 频点: {s['gpu_clk_mhz']} MHz")
+            print("=" * 65 + "\n")
+
+            if not args.no_open and res["timeline_html"].exists():
+                import webbrowser
+                webbrowser.open(str(res["timeline_html"].resolve()))
+        except Exception as e:
+            print(f"[AiProfile 结束失败]: {e}")
     elif args.cmd == "run":
         run_profile_task(
             package=args.package,
