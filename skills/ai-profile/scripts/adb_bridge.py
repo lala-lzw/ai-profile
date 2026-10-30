@@ -94,6 +94,84 @@ class AdbBridge:
                             return pkg, act
         return None, None
 
+    def get_installed_apps(self) -> list[dict[str, Any]]:
+        """获取手机上已安装的可启动第三方游戏与应用列表"""
+        res = self.shell("pm list packages -3")
+        if not res.ok:
+            return []
+
+        fg_pkg, _ = self.get_foreground_app()
+        raw_pkgs = [line.replace("package:", "").strip() for line in res.stdout.splitlines() if line.strip()]
+
+        # 友好别名映射表
+        known_aliases = {
+            "com.tencent.tmgp.sgame": "王者荣耀",
+            "com.hypergryph.endfield": "明日方舟：终末地",
+            "com.miui.home": "系统桌面",
+            "com.alibaba.android.rimet": "钉钉",
+            "org.cloud.sonic.android": "Sonic Agent"
+        }
+
+        # 过滤掉非图形应用或调试辅助工具
+        ignore_prefixes = ("io.appium.", "org.renderdoc.", "com.qualcomm.")
+
+        apps: list[dict[str, Any]] = []
+        for p in raw_pkgs:
+            if any(p.startswith(ign) for ign in ignore_prefixes):
+                continue
+
+            # 查询启动入口 Activity
+            act_res = self.shell(f"cmd package resolve-activity --brief {p}")
+            activity = ""
+            lines = act_res.stdout.strip().splitlines()
+            if len(lines) >= 2 and "/" in lines[-1]:
+                activity = lines[-1].strip()
+
+            if not activity:
+                continue
+
+            # 判断是否可能为游戏
+            is_game = any(k in p.lower() for k in ("game", "unity", "dhwd", "tmgp", "hypergryph", "mihoyo", "tencent", "netease", "epic", "unreal"))
+            name = known_aliases.get(p, p.split(".")[-1].capitalize())
+
+            apps.append({
+                "package": p,
+                "name": name,
+                "activity": activity,
+                "is_game": is_game,
+                "is_foreground": (p == fg_pkg)
+            })
+
+        # 排序：当前前台 > 游戏应用 > 其他应用
+        apps.sort(key=lambda x: (not x["is_foreground"], not x["is_game"], x["name"]))
+        return apps
+
+    def launch_app(self, package: str, kill_first: bool = False) -> bool:
+        """启动指定的应用包名，支持冷启动与热挂载"""
+        if kill_first:
+            self.shell(f"am force-stop {package}")
+            time.sleep(0.5)
+
+        # 尝试查询入口 Activity 启动
+        act_res = self.shell(f"cmd package resolve-activity --brief {package}")
+        lines = act_res.stdout.strip().splitlines()
+        activity = ""
+        if len(lines) >= 2 and "/" in lines[-1]:
+            activity = lines[-1].strip()
+
+        if activity:
+            self.shell(f"am start -n {activity}")
+        else:
+            self.shell(f"monkey -p {package} -c android.intent.category.LAUNCHER 1")
+
+        # 等待应用在前台就绪
+        for _ in range(10):
+            time.sleep(0.5)
+            fg, _ = self.get_foreground_app()
+            if fg == package:
+                return True
+        return False
+
     def capture_screenshot(self, local_path: Path) -> bool:
         """从设备截取当前屏幕并保存到本地"""
         remote_tmp = "/data/local/tmp/aiprofile_screen.png"

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 AiProfile Skill - PerfDog 模式轻量 Web 控制面板与后台 API 服务
-提供免依赖的纯 Python 标准库 HTTP 服务 (127.0.0.1:8088)，支持浏览器端与 IDE 内嵌实时打标交互。
+提供免依赖的纯 Python 标准库 HTTP 服务 (127.0.0.1:8088)，支持选择手机应用启动与实时打标交互。
 """
 
 import json
@@ -36,7 +36,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <body class="p-6 flex justify-center items-center min-h-screen">
   <div class="w-full max-w-lg bg-[#161b22] border border-[#30363d] rounded-2xl p-6 shadow-2xl">
     <!-- 头部信息 -->
-    <div class="flex justify-between items-center border-b border-[#30363d] pb-4 mb-5">
+    <div class="flex justify-between items-center border-b border-[#30363d] pb-4 mb-4">
       <div>
         <h1 class="text-xl font-bold text-[#58a6ff] flex items-center gap-2">
           ⚡ AiProfile <span class="text-xs bg-[#238636] text-white px-2 py-0.5 rounded-full font-semibold">PerfDog 模式</span>
@@ -48,15 +48,35 @@ HTML_PAGE = """<!DOCTYPE html>
       </div>
     </div>
 
+    <!-- 目标应用选择与启动区 -->
+    <div class="bg-[#0d1117] border border-[#30363d] rounded-xl p-4 mb-4">
+      <div class="text-xs font-semibold text-[#58a6ff] mb-2 flex justify-between items-center">
+        <span>📱 选择要测试的游戏 / 应用</span>
+        <button onclick="loadApps()" class="text-xs text-[#8b949e] hover:text-[#58a6ff]">🔄 刷新应用列表</button>
+      </div>
+      <div class="space-y-2.5">
+        <select id="appSelect" onchange="onAppChanged()" class="w-full bg-[#161b22] border border-[#30363d] focus:border-[#58a6ff] outline-none text-xs text-[#c9d1d9] px-3 py-2 rounded-lg">
+          <option value="">正在读取手机已安装应用...</option>
+        </select>
+        <div class="flex items-center justify-between text-xs text-[#8b949e] px-1">
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" id="launchCheck" checked class="rounded bg-[#161b22] border-[#30363d] text-[#238636] focus:ring-0">
+            <span>开始时在手机上自动拉起该游戏</span>
+          </label>
+          <span id="appStatusTip" class="text-emerald-500 text-xs"></span>
+        </div>
+      </div>
+    </div>
+
     <!-- 计时与核心控制 -->
-    <div class="flex items-center justify-between bg-[#0d1117] border border-[#30363d] rounded-xl p-4 mb-5">
+    <div class="flex items-center justify-between bg-[#0d1117] border border-[#30363d] rounded-xl p-4 mb-4">
       <div>
         <div class="text-xs text-[#8b949e]">采样运行时长</div>
         <div id="timerText" class="text-2xl font-mono font-bold text-[#f0f6fc]">00:00.0</div>
       </div>
       <div class="flex gap-2">
-        <button id="startBtn" onclick="doStart()" class="px-4 py-2.5 bg-[#238636] hover:bg-[#2ea043] active:bg-[#238636] text-white font-semibold text-sm rounded-lg shadow transition">
-          ▶ 开始收集
+        <button id="startBtn" onclick="doStart()" class="px-4 py-2.5 bg-[#238636] hover:bg-[#2ea043] active:bg-[#238636] text-white font-semibold text-sm rounded-lg shadow transition flex items-center gap-1.5">
+          <span>🚀</span> <span id="startBtnText">启动并开始收集</span>
         </button>
         <button id="stopBtn" onclick="doStop()" disabled class="px-4 py-2.5 bg-[#da3633] hover:bg-[#f85149] disabled:bg-[#21262d] disabled:text-[#484f58] text-white font-semibold text-sm rounded-lg shadow transition">
           ⏹ 结束收集
@@ -65,7 +85,7 @@ HTML_PAGE = """<!DOCTYPE html>
     </div>
 
     <!-- 打标签输入框 -->
-    <div class="bg-[#0d1117] border border-[#30363d] rounded-xl p-4 mb-5">
+    <div class="bg-[#0d1117] border border-[#30363d] rounded-xl p-4 mb-4">
       <div class="text-xs font-semibold text-[#58a6ff] mb-2 flex justify-between">
         <span>🏷️ 时间轴实时打标 (Marker)</span>
         <span class="text-[#8b949e] font-normal">支持直接回车</span>
@@ -73,18 +93,18 @@ HTML_PAGE = """<!DOCTYPE html>
       <div class="flex gap-2">
         <input id="tagInput" type="text" placeholder="输入标签名 (如: 进副本, 团战爆发, 放技能)..." 
                onkeydown="if(event.key==='Enter') doAddTag()"
-               class="flex-1 bg-[#161b22] border border-[#30363d] focus:border-[#58a6ff] outline-none text-sm text-[#c9d1d9] px-3 py-2 rounded-lg">
-        <button id="tagBtn" onclick="doAddTag()" disabled class="px-4 py-2 bg-[#1f6feb] hover:bg-[#388bfd] disabled:bg-[#21262d] disabled:text-[#484f58] text-white font-medium text-sm rounded-lg transition">
+               class="flex-1 bg-[#161b22] border border-[#30363d] focus:border-[#58a6ff] outline-none text-xs text-[#c9d1d9] px-3 py-2 rounded-lg">
+        <button id="tagBtn" onclick="doAddTag()" disabled class="px-4 py-2 bg-[#1f6feb] hover:bg-[#388bfd] disabled:bg-[#21262d] disabled:text-[#484f58] text-white font-medium text-xs rounded-lg transition">
           打标
         </button>
       </div>
       <!-- 快捷预设 -->
-      <div class="flex flex-wrap gap-1.5 mt-3">
-        <button onclick="quickTag('进入大世界')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2.5 py-1 rounded">进入大世界</button>
-        <button onclick="quickTag('团战爆发')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2.5 py-1 rounded">团战爆发</button>
-        <button onclick="quickTag('释放全屏绝招')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2.5 py-1 rounded">释放全屏绝招</button>
-        <button onclick="quickTag('场景加载')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2.5 py-1 rounded">场景加载</button>
-        <button onclick="quickTag('切换极高画质')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2.5 py-1 rounded">切换极高画质</button>
+      <div class="flex flex-wrap gap-1.5 mt-2.5">
+        <button onclick="quickTag('进入大世界')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2 py-0.5 rounded">进入大世界</button>
+        <button onclick="quickTag('团战爆发')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2 py-0.5 rounded">团战爆发</button>
+        <button onclick="quickTag('释放全屏绝招')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2 py-0.5 rounded">释放全屏绝招</button>
+        <button onclick="quickTag('场景加载')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2 py-0.5 rounded">场景加载</button>
+        <button onclick="quickTag('切换极高画质')" class="text-xs bg-[#21262d] hover:bg-[#30363d] text-[#8b949e] px-2 py-0.5 rounded">切换极高画质</button>
       </div>
     </div>
 
@@ -94,8 +114,8 @@ HTML_PAGE = """<!DOCTYPE html>
         <span>已记录标签列表 (<span id="tagCount">0</span>)</span>
         <span id="tempText" class="text-[#f0883e]">瞬时温度: --°C</span>
       </div>
-      <div id="tagList" class="bg-[#0d1117] border border-[#30363d] rounded-xl p-2.5 h-36 overflow-y-auto font-mono text-xs space-y-1.5">
-        <div class="text-[#484f58] text-center py-8">暂无标签，点击开始后输入标签名称记录</div>
+      <div id="tagList" class="bg-[#0d1117] border border-[#30363d] rounded-xl p-2.5 h-32 overflow-y-auto font-mono text-xs space-y-1.5">
+        <div class="text-[#484f58] text-center py-6">点击开始后在此输入打标</div>
       </div>
     </div>
   </div>
@@ -103,13 +123,60 @@ HTML_PAGE = """<!DOCTYPE html>
 <script>
 let isRunning = false;
 let startTime = 0;
-let pollTimer = null;
+let installedApps = [];
+
+async function loadApps() {
+  try {
+    const res = await fetch('/api/apps');
+    installedApps = await res.json();
+    const select = document.getElementById('appSelect');
+    select.innerHTML = '';
+    
+    // 首项提供前台自动检测
+    const optAuto = document.createElement('option');
+    optAuto.value = '__foreground__';
+    optAuto.innerText = '⚡ [自动锁定当前真机前台应用]';
+    select.appendChild(optAuto);
+
+    installedApps.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.package;
+      const icon = a.is_game ? '🎮' : '📱';
+      const fgBadge = a.is_foreground ? ' [前台运行中]' : '';
+      opt.innerText = `${icon} ${a.name} (${a.package})${fgBadge}`;
+      if (a.is_foreground) {
+        opt.selected = true;
+      }
+      select.appendChild(opt);
+    });
+    onAppChanged();
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+function onAppChanged() {
+  const select = document.getElementById('appSelect');
+  const launchCheck = document.getElementById('launchCheck');
+  const btnText = document.getElementById('startBtnText');
+  const tip = document.getElementById('appStatusTip');
+
+  if (select.value === '__foreground__' || !select.value) {
+    launchCheck.checked = false;
+    btnText.innerText = '原地挂载开始收集';
+    tip.innerText = '原地挂载当前前台';
+  } else {
+    launchCheck.checked = true;
+    btnText.innerText = '启动游戏并收集';
+    tip.innerText = '将先拉起该游戏';
+  }
+}
 
 async function checkStatus() {
   try {
     const res = await fetch('/api/status');
     const data = await res.json();
-    document.getElementById('devInfo').innerText = `设备: ${data.device || '已连接'} | 前台: ${data.package || '检测中'}`;
+    document.getElementById('devInfo').innerText = `设备: ${data.device || '已连接'} | 当前前台: ${data.package || '未检测到'}`;
     if (data.temp_c) {
       document.getElementById('tempText').innerText = `瞬时温度: ${data.temp_c.toFixed(1)}°C`;
     }
@@ -135,6 +202,8 @@ function updateUIState(active) {
   document.getElementById('startBtn').disabled = active;
   document.getElementById('stopBtn').disabled = !active;
   document.getElementById('tagBtn').disabled = !active;
+  document.getElementById('appSelect').disabled = active;
+  document.getElementById('launchCheck').disabled = active;
   
   const badge = document.getElementById('statusBadge');
   if (active) {
@@ -150,7 +219,7 @@ function renderLabels(labels) {
   document.getElementById('tagCount').innerText = labels.length;
   const list = document.getElementById('tagList');
   if (!labels.length) {
-    list.innerHTML = '<div class="text-[#484f58] text-center py-8">暂无标签，点击开始后输入标签名称记录</div>';
+    list.innerHTML = '<div class="text-[#484f58] text-center py-6">暂无标签，点击开始后输入标签名称记录</div>';
     return;
   }
   list.innerHTML = labels.map(l => `
@@ -164,7 +233,20 @@ function renderLabels(labels) {
 
 async function doStart() {
   document.getElementById('startBtn').disabled = true;
-  await fetch('/api/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({tag: 'WebLiveSession'}) });
+  const select = document.getElementById('appSelect');
+  const launchCheck = document.getElementById('launchCheck');
+  const chosenPkg = select.value === '__foreground__' ? null : select.value;
+  const doLaunch = launchCheck.checked && (chosenPkg !== null);
+
+  await fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      tag: 'PerfDogSession',
+      package: chosenPkg,
+      launch: doLaunch
+    })
+  });
   checkStatus();
 }
 
@@ -205,6 +287,7 @@ setInterval(() => {
   }
 }, 100);
 
+loadApps();
 checkStatus();
 setInterval(checkStatus, 1500);
 </script>
@@ -231,6 +314,13 @@ class AiProfileHandler(BaseHTTPRequestHandler):
             self._set_cors()
             self.end_headers()
             self.wfile.write(HTML_PAGE.encode("utf-8"))
+        elif parsed.path == "/api/apps":
+            apps = mgr.adb.get_installed_apps()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self._set_cors()
+            self.end_headers()
+            self.wfile.write(json.dumps(apps, ensure_ascii=False).encode("utf-8"))
         elif parsed.path == "/api/status":
             session = mgr.get_current_session()
             t_c = 0.0
@@ -254,9 +344,8 @@ class AiProfileHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self._set_cors()
             self.end_headers()
-            self.wfile.write(json.dumps(data).encode("utf-8"))
+            self.wfile.write(json.dumps(data, ensure_ascii=False).encode("utf-8"))
         elif parsed.path.startswith("/report/"):
-            # 允许查看生成的 timeline.html
             rel = parsed.path.replace("/report/", "")
             target_file = Path(rel)
             if target_file.exists():
@@ -283,8 +372,9 @@ class AiProfileHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/start":
             tag = body.get("tag", "WebSession")
             pkg = body.get("package")
+            do_launch = bool(body.get("launch", False))
             try:
-                s = mgr.start_session(package=pkg, tag=tag)
+                s = mgr.start_session(package=pkg, tag=tag, launch=do_launch)
                 resp = {"ok": True, "session": s}
             except Exception as e:
                 resp = {"ok": False, "error": str(e)}
@@ -293,7 +383,7 @@ class AiProfileHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self._set_cors()
             self.end_headers()
-            self.wfile.write(json.dumps(resp).encode("utf-8"))
+            self.wfile.write(json.dumps(resp, ensure_ascii=False).encode("utf-8"))
 
         elif parsed.path == "/api/mark":
             name = body.get("name", "Marker")
@@ -307,7 +397,7 @@ class AiProfileHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self._set_cors()
             self.end_headers()
-            self.wfile.write(json.dumps(resp).encode("utf-8"))
+            self.wfile.write(json.dumps(resp, ensure_ascii=False).encode("utf-8"))
 
         elif parsed.path == "/api/stop":
             try:
@@ -327,7 +417,7 @@ class AiProfileHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self._set_cors()
             self.end_headers()
-            self.wfile.write(json.dumps(resp).encode("utf-8"))
+            self.wfile.write(json.dumps(resp, ensure_ascii=False).encode("utf-8"))
 
 def start_server(port: int = 8088):
     server = HTTPServer(("127.0.0.1", port), AiProfileHandler)

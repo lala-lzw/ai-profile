@@ -54,11 +54,47 @@ def run_interactive_record(
     output_dir: Optional[Path] = None
 ):
     mgr = SessionManager()
+    do_launch = False
+
+    # 若未在命令行显式指定包名，列出手机已安装应用让用户交互式选择
+    if not package:
+        dev_env = mgr.adb.prepare_device_env()
+        fg_pkg, _ = mgr.adb.get_foreground_app()
+        apps = mgr.adb.get_installed_apps()
+
+        print("\n" + "=" * 70)
+        print(f"  📱 真机设备: {dev_env['model']} | 已安装游戏与应用列表")
+        print("=" * 70)
+        print(f"  [0] ⚡ 原地挂载当前真机前台应用: {fg_pkg or '未检测到'}")
+        
+        display_apps = apps[:15]
+        for idx, a in enumerate(display_apps, 1):
+            icon = "🎮" if a["is_game"] else "📱"
+            fg_tag = " [★当前前台]" if a["is_foreground"] else ""
+            print(f"  [{idx:2d}] {icon} {a['name']:<24s} ({a['package']}){fg_tag}")
+        print("-" * 70)
+        
+        try:
+            raw_in = input("👉 请输入序号选择要启动测试的应用 (直接回车默认 0 原地挂载): ").strip()
+            if raw_in.isdigit() and 1 <= int(raw_in) <= len(display_apps):
+                chosen = display_apps[int(raw_in) - 1]
+                package = chosen["package"]
+                do_launch = True
+                print(f"[Device] 用户选择了应用: {chosen['name']} ({package})，将在真机上自动拉起！")
+            else:
+                package = fg_pkg
+                do_launch = False
+                print(f"[Device] 使用当前前台应用: {package}")
+        except (EOFError, KeyboardInterrupt):
+            package = fg_pkg
+            do_launch = False
+
     session = mgr.start_session(
         package=package,
         tag=tag,
         period_ms=period_ms,
         fps=fps,
+        launch=do_launch,
         output_dir=output_dir
     )
 

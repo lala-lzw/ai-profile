@@ -55,6 +55,7 @@ class SessionManager:
         tag: Optional[str] = None,
         period_ms: int = 200,
         fps: float = 60.0,
+        launch: bool = False,
         output_dir: Optional[Path] = None
     ) -> dict[str, Any]:
         """启动持续采样会话 (类似 PerfDog 点击开始)"""
@@ -62,6 +63,13 @@ class SessionManager:
             raise RuntimeError("已有正在运行的采样会话！请先调用 stop 结束它，或删除 ~/.aiprofile_session.json。")
 
         dev_env = self.adb.prepare_device_env()
+        
+        # 若指定了包名且要求先启动游戏
+        if package and launch:
+            print(f"[Device] 正在真机上启动游戏: {package}...")
+            self.adb.launch_app(package)
+            time.sleep(2.0)
+
         if not package:
             fg_pkg, fg_act = self.adb.get_foreground_app()
             if not fg_pkg:
