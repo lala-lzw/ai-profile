@@ -88,6 +88,7 @@ class SessionManager:
 
         session_state = {
             "active": True,
+            "serial": self.adb.serial,
             "package": package,
             "tag": run_tag,
             "period_ms": period_ms,
@@ -102,7 +103,7 @@ class SessionManager:
         SESSION_STATE_FILE.write_text(json.dumps(session_state, ensure_ascii=False, indent=2), encoding="utf-8")
         return session_state
 
-    def add_marker(self, label_name: str) -> dict[str, Any]:
+    def add_marker(self, label_name: str, source_line: Optional[int] = None) -> dict[str, Any]:
         """为当前时刻记录标签 (类似 PerfDog 点击打标签)"""
         session = self.get_current_session()
         if not session:
@@ -114,6 +115,8 @@ class SessionManager:
             "time_s": elapsed,
             "timestamp_iso": datetime.now().isoformat()
         }
+        if source_line is not None:
+            marker["source_line"] = int(source_line)
 
         session["labels"].append(marker)
         SESSION_STATE_FILE.write_text(json.dumps(session, ensure_ascii=False, indent=2), encoding="utf-8")

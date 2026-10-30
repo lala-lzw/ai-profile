@@ -1,14 +1,12 @@
 ---
 name: profile-stop
 description: >-
-  极速结束 Android 手机 GPU 硬件性能采样，拉取物理数据并在浏览器打开时间轴走势图。
-  当用户在聊天框输入 /profile-stop 或 /AI_profile:stop 时使用。
+  结束 AiProfile Android GPU 采样、拉取 CLI 原始 CSV 并生成离线报告。
+  当用户输入 /profile-stop 或 /AI_profile:stop，或要求结束当前采样时使用。
 ---
 
-# profile-stop 快捷结束指令
+# 结束当前采样
 
-用户在聊天框输入此指令时，直接调用底层 `profile-stop` 命令结束采样，拉取数据、切分分段画像，自动在默认浏览器中打开 `timeline.html`，并向用户汇总输出物理总线带宽、UBWC 压缩率与分段对比表。
-
-```powershell
-profile-stop
-```
+执行 `profile-stop`。命令停止设备采样、拉取原始 CSV，并打开 `timeline.html`。
+向用户反馈报告位置、原始样本和已记录标签。指标保持 CLI 原名与原值，不除以 FPS。
+桌面会话另有 SurfaceFlinger FPS 记录时，报告会同时展示 FPS 曲线。

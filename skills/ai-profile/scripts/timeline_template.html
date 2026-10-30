@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+<title>AiProfile · 性能分析报告</title>
+<style>
+
+:root { color-scheme: light; --accent: #137f83; --ink: #233646; --muted: #738390; --line: #e1e8eb; --bg: #f1f5f6; }
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px "Segoe UI", "Microsoft YaHei", sans-serif; }
+button, input, select { font: inherit; }
+button, a, input, select { outline-offset: 4px; }
+button { cursor: pointer; }
+a { color: var(--accent); text-decoration: none; }
+button:disabled { cursor: default; opacity: .45; }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); }
+.topbar { height: 64px; position: sticky; top: 0; z-index: 8; display: flex; align-items: center; justify-content: space-between; padding: 0 max(32px, calc((100vw - 1540px) / 2 + 32px)); background: #fff; border-bottom: 1px solid var(--line); }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 21px; font-weight: 700; letter-spacing: -.5px; }
+.brand-icon { display: grid; place-items: center; width: 32px; height: 32px; background: var(--accent); color: #fff; border-radius: 9px; font-size: 25px; }
+.topnote { color: var(--muted); font-size: 12px; letter-spacing: 1px; }
+.wrap { max-width: 1540px; margin: auto; padding: 28px 32px 40px 224px; }
+.titlebar { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 22px; }
+h1 { margin: 0; font-size: 24px; line-height: 1.5; overflow-wrap: anywhere; }
+.subtitle { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.actions { display: flex; gap: 10px; flex-shrink: 0; }
+.button { display: inline-flex; align-items: center; gap: 6px; padding: 9px 15px; border: 1px solid #d6e0e4; border-radius: 7px; background: #fff; color: #455c6a; }
+.button:hover { background: #eef7f7; border-color: #9bc3c4; }
+.button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.info { margin-bottom: 22px; }
+.info-columns { display: grid; grid-template-columns: 1.1fr 1fr 1fr; gap: 14px; }
+.info-column { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+.info h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 18px; color: #365461; font-size: 13px; }
+.info h2::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.meta { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 10px; font-size: 12px; line-height: 1.6; }
+.meta dt, .meta dd { margin: 0; }
+.meta dt { color: var(--muted); }
+.meta dd { overflow-wrap: anywhere; }
+.info-foot { padding: 12px 2px 0; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.info-foot strong { color: var(--ink); font-weight: 600; }
+body.info-hidden .info-columns { display: none; }
+.tabs { position: fixed; top: 100px; left: max(24px, calc((100vw - 1540px) / 2 + 32px)); z-index: 6; display: flex; flex-direction: column; align-items: stretch; gap: 6px; width: 160px; }
+.nav-title { padding: 0 12px 12px; color: #8b9ba5; font-size: 11px; letter-spacing: 2px; }
+.tab { padding: 12px; border-radius: 8px; color: #667b88; white-space: nowrap; }
+.tab:hover { background: #e8eff1; }
+.tab.active { background: #dceeee; color: #126d73; font-weight: 600; }
+.tabs .right-note { margin: 16px 12px 0; padding-top: 16px; border-top: 1px solid #d9e3e6; color: #93a1aa; font-size: 11px; line-height: 1.7; }
+.panel { margin-bottom: 20px; border: 1px solid var(--line); border-radius: 12px; background: #fff; scroll-margin-top: 88px; overflow: hidden; }
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 19px 22px; border-bottom: 1px solid #edf1f3; }
+.panel-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
+.panel-head small { color: var(--muted); font-size: 12px; }
+.collapse { width: 26px; height: 26px; border: 0; border-radius: 6px; background: #f1f5f6; color: #7b919d; line-height: 20px; }
+.panel-body { padding: 22px; }
+.panel.collapsed .panel-body { display: none; }
+.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 28px; }
+.metric { padding: 18px 16px; border: 1px solid #e8eef0; border-radius: 8px; background: #f7f9fa; text-align: left; }
+.metric:first-child { border-color: #c7e2e1; background: #ebf6f4; }
+.metric:first-child .metric-value { color: #137f83; }
+.metric-label { margin-bottom: 12px; color: #748792; font-size: 12px; }
+.metric-value { font-size: 25px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: -.5px; }
+.metric-value small { margin-left: 5px; color: var(--muted); font-size: 10px; font-weight: 400; letter-spacing: 0; white-space: nowrap; }
+.unavailable { color: #9aa9b1; font-size: 15px; font-weight: 400; letter-spacing: 0; }
+.section-caption { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 10px 0 14px; }
+#raw-search { padding: 8px 12px; border: 1px solid var(--line); border-radius: 5px; min-width: 260px; }
+.section-caption h3 { margin: 0; font-size: 13px; }
+.section-caption small { color: var(--muted); font-size: 12px; }
+.table-wrap { overflow: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; white-space: nowrap; }
+th { background: #f0f5f6; color: #6e828f; font-weight: 500; }
+td, th { padding: 14px 15px; border-bottom: 1px solid var(--line); text-align: right; font-variant-numeric: tabular-nums; }
+td:first-child, th:first-child { position: sticky; left: 0; z-index: 1; background: #fff; text-align: left; }
+th:first-child { background: #f0f5f6; }
+.segment-row { cursor: pointer; }
+.segment-row:hover td { background: #f2f8f7; }
+.segment-row.selected td { background: #e7f3f1; color: #166d72; }
+.swatch { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 2px; }
+.overview-note { margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.rangebar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 0 20px; padding: 16px 20px; border: 1px solid #d6e6e7; border-radius: 10px; background: #edf5f4; }
+.rangebar strong { margin-right: 4px; color: #386367; font-size: 13px; }
+.rangebar label { color: var(--muted); font-size: 12px; }
+.rangebar input { width: 90px; padding: 6px 8px; border: 1px solid #ccdce0; border-radius: 5px; background: #fff; color: #395361; }
+.rangebar .button { padding: 6px 12px; font-size: 12px; }
+.rangehint { margin-left: auto; color: var(--muted); font-size: 12px; }
+.rangeerror { color: #be5c53; font-size: 12px; }
+.chart-title { margin: 0; font-size: 13px; font-weight: 600; }
+.chart-meta { display: flex; flex-wrap: wrap; gap: 24px; margin: 0 0 18px; }
+.chart-stat { min-width: 110px; color: var(--muted); font-size: 12px; }
+.chart-stat b { display: block; margin-top: 5px; color: #365361; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-stat b small { margin-left: 4px; color: #91a1aa; font-size: 11px; font-weight: 400; }
+.chart-shell { position: relative; }
+.chart { display: block; width: 100%; height: 274px; touch-action: pan-y; cursor: crosshair; }
+.legend { display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px 22px; margin-top: 12px; }
+.legend button { padding: 5px 0; border: 0; background: none; color: #607985; font-size: 12px; }
+.legend button[aria-pressed=false] { opacity: .38; text-decoration: line-through; }
+.legend i { display: inline-block; width: 16px; height: 3px; margin-right: 7px; vertical-align: middle; }
+.chart-note { margin: 16px 0 0; color: #889da7; font-size: 12px; line-height: 1.7; }
+.empty-chart { display: grid; place-items: center; height: 130px; border: 1px dashed #dae4e8; border-radius: 8px; background: #f9fbfb; color: #8da1ab; font-size: 13px; }
+.tip { display: none; position: fixed; z-index: 12; min-width: 190px; max-width: 340px; padding: 12px 15px; border: 1px solid #cbdfe1; border-radius: 8px; background: #fff; box-shadow: 0 6px 24px #24495118; pointer-events: none; font-size: 12px; }
+.tip strong { display: block; padding-bottom: 8px; color: var(--accent); }
+.tip-row { display: flex; justify-content: space-between; gap: 20px; line-height: 1.9; }
+.tip-row b { font-weight: 600; }
+.hover-status { min-height: 18px; margin-bottom: 10px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.footer { padding: 6px 0 15px; color: #91a3ad; font-size: 12px; text-align: center; }
+.section-title { margin: 28px 0 14px; padding-left: 2px; color: #617e8a; font-size: 13px; font-weight: 600; letter-spacing: .5px; }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+@media (max-width: 1180px) {
+  .wrap { padding-left: 194px; padding-right: 24px; }
+  .tabs { width: 144px; }
+  .info-columns { grid-template-columns: 1fr 1fr; }
+  .info-column:last-child { grid-column: 1 / -1; }
+  .metric { padding: 15px 12px; }
+  .metric-value { font-size: 22px; }
+  .rangehint { width: 100%; margin-left: 0; }
+}
+@media (max-width: 900px) {
+  .wrap { padding: 22px 20px 30px; }
+  .topbar { padding: 0 20px; }
+  .topnote { letter-spacing: 0; }
+  .tabs { position: sticky; top: 64px; left: auto; flex-direction: row; width: auto; padding: 10px 0; margin: 0 0 16px; overflow-x: auto; background: var(--bg); }
+  .nav-title, .tabs .right-note { display: none; }
+  .tab { padding: 10px 13px; }
+  .chart-meta { gap: 16px; }
+  .panel-body { padding: 18px; }
+}
+@media (max-width: 580px) {
+  .titlebar { align-items: flex-start; flex-direction: column; }
+  .actions { width: 100%; }
+  h1 { font-size: 22px; }
+  .info-columns { grid-template-columns: 1fr; }
+  .info-column:last-child { grid-column: auto; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .topnote { font-size: 10px; }
+  .brand { font-size: 19px; }
+  .panel-head { padding: 16px; }
+  .panel-head small { display: none; }
+  .chart-stat { min-width: 90px; }
+  .chart { height: 244px; }
+  .section-caption { align-items: flex-start; flex-direction: column; }
+  .rangebar { padding: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+@media print {
+  .topbar, .tabs, .actions, .rangebar, .collapse, .tip { display: none; }
+  .wrap { padding: 0; max-width: none; }
+  .panel { break-inside: avoid; }
+  .panel.collapsed .panel-body { display: block; }
+  .legend { display: none; }
+  body { background: #fff; }
+}
+
+.metric-label { overflow-wrap: anywhere; min-height: 34px; }
+.metric-value { font-size: 18px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.audit-banner { display: block; padding: 15px 18px; margin: 0 0 20px; border: 1px solid #e5bd84; background: #fff6e7; color: #80551c; border-radius: 8px; line-height: 1.7; }
+.flagged td { background: #fff4e3; }
+.raw-value { font: 13px Consolas, monospace; white-space: pre; }
+.sample-control { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+.sample-control input { width: 100px; padding: 7px; border: 1px solid var(--line); border-radius: 4px; }
+#source-hash { font: 11px Consolas, monospace; overflow-wrap: anywhere; }
+#audit-table td:last-child { white-space: normal; min-width: 230px; }
+
+.stage-filter { position: sticky; top: 64px; z-index: 7; margin-bottom: 20px; padding: 14px 18px; background: #fff; border: 1px solid #c8dddb; border-radius: 10px; box-shadow: 0 3px 12px #193d4110; }
+.stage-filter-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
+.stage-filter-head strong { margin-right: auto; }
+.stage-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.stage-option { display: inline-flex; align-items: center; gap: 7px; padding: 8px 11px; background: #f1f6f5; border-radius: 6px; cursor: pointer; }
+.stage-option input { width: 15px; height: 15px; margin: 0; accent-color: var(--accent); cursor: pointer; }
+.stage-option .swatch { margin: 0; }
+.stage-count { color: var(--muted); font-size: 12px; }
+.stage-filter .button { padding: 6px 10px; font-size: 12px; }
+.stage-name { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; }
+.stage-name input { accent-color: var(--accent); }
+@media (max-width: 900px) { .stage-filter { position: static; } }
+@media print { .stage-filter { position: static; box-shadow: none; } }
+</style>
+</head>
+<body>
+<header class="topbar"><div class="brand"><span class="brand-icon" aria-hidden="true">∿</span>AiProfile</div><span class="topnote">sdpcli 原始数据</span></header>
+<main class="wrap">
+<div class="titlebar"><div><h1 id="report-title"></h1><div class="subtitle">CLI 原始列名 · 易读显示单位 · 原值可查</div></div><div class="actions"><button class="button" id="toggle-units" aria-pressed="false">显示原始数值</button><button class="button" id="toggle-info">收起来源信息</button><button class="button primary" id="export-raw">↓ 下载 CLI 原文件</button></div></div>
+<section class="info"><div class="info-columns" id="info-columns"><div class="info-column"><h2>数据来源</h2><dl class="meta" id="source-meta"></dl></div><div class="info-column"><h2>设备与会话</h2><dl class="meta" id="session-meta"></dl></div><div class="info-column"><h2>来源校验</h2><div id="source-hash"></div></div></div><div class="info-foot">图表横轴为经过时间。GPU 时间按配置采样间隔估算；FPS 使用记录时间。显示单位：M/G = 10⁶/10⁹，MB = 10⁶ Bytes；Clocks / Second 为周期计数。原表、悬停原值和下载 CSV 保留完整数据。</div></section>
+<nav class="tabs" aria-label="报告分区"><div class="nav-title">CLI 原始数据</div><a class="tab" href="#fps">FPS</a><a class="tab active" href="#overview">当前 GPU 样本</a><a class="tab" href="#gpu">GPU</a><a class="tab" href="#shader">Shader</a><a class="tab" href="#stalls">Stalls / Cache</a><a class="tab" href="#bandwidth">Memory</a><a class="tab" href="#cpu">CPU</a><a class="tab" href="#memory">Device Memory</a><a class="tab" href="#raw-sample">全部原始列</a><a class="tab" href="#data-audit">数据核查</a></nav>
+<a class="audit-banner" id="audit-banner" href="#data-audit"></a>
+<section class="stage-filter" aria-label="标签筛选"><div class="stage-filter-head"><strong>标签筛选</strong><span class="stage-count" id="stage-count" aria-live="polite"></span><button class="button" id="stage-marked">仅已打标</button><button class="button" id="stage-none">全部取消</button></div><div class="stage-checks" id="stage-checks"></div></section>
+<section class="panel" id="fps"><div class="panel-head"><h2>FPS</h2></div><div class="panel-body"><div class="metric-value" id="fps-value">未采集</div><canvas class="chart" id="fps-chart" aria-label="FPS 随采样时间变化" role="img"></canvas></div></section>
+<section class="panel" id="overview"><div class="panel-head"><h2>当前 GPU 原始样本</h2><small id="overview-source"></small></div><div class="panel-body"><div class="metrics" id="metrics"></div><div class="section-caption"><h3>阶段标签</h3><small>勾选可同时筛选 FPS 和全部指标曲线</small></div><div class="table-wrap"><table><thead><tr><th>阶段</th><th>起始 CSV 行</th><th>结束 CSV 行</th><th>样本数</th><th>边界依据</th></tr></thead><tbody id="segments"></tbody></table></div></div></section>
+<form class="rangebar" id="range-form"><strong>时间范围</strong><label for="range-start">起点 [s]</label><input id="range-start" type="number" step="any" required><span>—</span><label for="range-end">终点 [s]</label><input id="range-end" type="number" step="any" required><button class="button primary" type="submit">查看范围</button><button class="button" type="button" id="reset-range">全程</button><span class="rangehint">拖动曲线选择时段 · 双击恢复全程</span><span id="range-error" class="rangeerror" role="status"></span></form>
+<div id="chart-sections"></div>
+<section class="panel" id="raw-sample"><div class="panel-head"><h2>全部 CLI 原始列</h2><small id="raw-count"></small></div><div class="panel-body"><div class="sample-control"><button class="button" id="previous-row">上一样本</button><label for="source-row">CSV 文件行</label><input id="source-row" type="number" step="1"><button class="button" id="next-row">下一样本</button><input id="raw-search" aria-label="搜索 CLI 原始列名" placeholder="搜索原始列名…"></div><div class="table-wrap"><table><thead><tr><th>CLI 原始列名</th><th>CLI 原始值</th><th>核查提示</th></tr></thead><tbody id="raw-metrics"></tbody></table></div></div></section>
+<section class="panel" id="data-audit"><div class="panel-head"><h2>数据核查：待核实项</h2><small>原值保留</small></div><div class="panel-body"><p class="overview-note">量级提示用于定位待核实的计数器，不等于已确认数值错误。未知单位不作推断。点击来源行可查看对应原始样本。</p><div class="table-wrap"><table id="audit-table"><thead><tr><th>CSV 文件行</th><th>CLI 原始列名</th><th>CLI 原始值</th><th>待核实原因</th></tr></thead><tbody id="audit-rows"></tbody></table></div></div></section>
+<footer class="footer">AiProfile · 原始值直接来自 sdpcli CSV</footer>
+</main><div class="tip" id="tooltip"></div>
+<script>
+'use strict';
+/*__REPORT_DATA__*/
+const $=id=>document.getElementById(id);
+const colors=['#137f83','#d19342','#587ead','#a36c8d','#78a26b','#5f9cb3','#c87561','#879564'];
+const times=report.sourceLines;
+const sampleTimes=report.sampleTimes??times.map((_,index)=>index*(report.periodMs??200)/1000);
+function formatElapsed(value){const ticks=Math.max(0,Math.round(Number(value)*10)),minutes=Math.floor(ticks/600),seconds=Math.floor(ticks%600/10),fraction=ticks%10;return `${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}.${fraction}`;}
+function elapsedAtLine(line){if(!times.length)return 0;const right=lowerBound(line);if(right===0)return sampleTimes[0];if(right===times.length)return sampleTimes.at(-1);const left=right-1,weight=(line-times[left])/(times[right]-times[left]);return sampleTimes[left]+weight*(sampleTimes[right]-sampleTimes[left]);}
+function lineAtElapsed(time){if(!times.length)return 2;if(time<=sampleTimes[0])return times[0];if(time>=sampleTimes.at(-1))return times.at(-1);let low=0,high=sampleTimes.length;while(low<high){const mid=(low+high)>>>1;if(sampleTimes[mid]<time)low=mid+1;else high=mid;}const left=low-1,weight=(time-sampleTimes[left])/(sampleTimes[low]-sampleTimes[left]);return times[left]+weight*(times[low]-times[left]);}
+
+const firstLine=times[0]??2,lastLine=times.at(-1)??firstLine;
+const fpsSamples=report.fpsSamples??[];
+
+
+const numeric=value=>{const text=String(value??'').trim();if(!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(text))return null;const number=Number(text);return Number.isFinite(number)?number:null;};
+report.columns=Object.fromEntries(Object.entries(report.rawColumns).map(([column,values])=>[column,values.map(numeric)]));
+report.series=report.columns;
+let range=[firstLine,lastLine],selectedIndex=Math.max(0,times.length-1),hoverTime=null;
+const views=[],metricNodes=new Map();
+let readableUnits=true;
+function resolveDisplay(column,magnitude=0){if(!readableUnits)return {divisor:1,unit:'',compact:false};const base=report.displayUnits?.[column]??{divisor:1,unit:'',compact:true};if(base.compact){for(const [divisor,prefix] of [[1e12,'T'],[1e9,'G'],[1e6,'M'],[1e3,'K']])if(Math.abs(magnitude)>=divisor)return {divisor,unit:prefix+base.unit,compact:false};}return base;}
+function formatAmount(value){if(value===0)return '0';if(Math.abs(value)<.01)return String(Number(value.toPrecision(4)));return String(Number(value.toFixed(2)));}
+function formatMetric(column,raw,spec=null){if(raw==null||raw==='')return '—';const value=numeric(raw);if(!readableUnits||value==null)return String(raw);spec=spec??resolveDisplay(column,value);return formatAmount(value/spec.divisor)+(spec.unit?' '+spec.unit:'');}
+$('toggle-units').addEventListener('click',()=>{readableUnits=!readableUnits;$('toggle-units').textContent=readableUnits?'显示原始数值':'使用易读单位';$('toggle-units').setAttribute('aria-pressed',String(!readableUnits));renderSample();drawAll();});
+
+const stages=report.segments.map((stage,index)=>({...stage,id:stage.id??`stage-${index}`}));
+const selectedStages=new Set(stages.map(stage=>stage.id)),stageInputs=new Map();
+const stageColors=['#418b91','#d29d61','#768da6','#ac7c8c','#79a18a'];
+const rowStages=times.map(line=>stages.findIndex(stage=>line>=stage.source_start_line&&line<=stage.source_end_line));
+let activeIndices=[];
+function stageTitle(stage){return stage.is_marked?stage.label_name:stages.length===1?'全程（未打标）':'未打标 / 准备';}
+function rowAllowed(index){const stage=stages[rowStages[index]];return !!stage&&selectedStages.has(stage.id);}
+function stageAtTime(time){return stages.findIndex(stage=>time>=Number(stage.time_start_s??0)&&(stage.time_end_s==null||time<Number(stage.time_end_s)));}
+function fpsAllowed(sample){const index=stageAtTime(Number(sample['Elapsed (s)']));return index>=0&&selectedStages.has(stages[index].id);}
+function selectedFpsSamples(){return fpsSamples.filter(fpsAllowed);}
+function selectedRowIndices(){const [first,last]=indices();const result=[];for(let i=first;i<last;i++)if(rowAllowed(i))result.push(i);return result;}
+function setStageSelection(ids){selectedStages.clear();for(const id of ids)selectedStages.add(id);const chosen=stages.filter(stage=>selectedStages.has(stage.id));range=chosen.length?[Math.min(...chosen.map(stage=>stage.source_start_line)),Math.max(...chosen.map(stage=>stage.source_end_line))]:[firstLine,lastLine];hoverTime=null;$('tooltip').style.display='none';syncRange();renderSample();renderAudit();drawAll();}
+function toggleStage(id,checked){const ids=new Set(selectedStages);if(checked)ids.add(id);else ids.delete(id);setStageSelection(ids);}
+function stageCheckbox(stage){const input=el('input');input.type='checkbox';input.checked=selectedStages.has(stage.id);input.setAttribute('aria-label',`显示阶段 ${stageTitle(stage)}`);input.addEventListener('change',()=>toggleStage(stage.id,input.checked));if(!stageInputs.has(stage.id))stageInputs.set(stage.id,[]);stageInputs.get(stage.id).push(input);return input;}
+const allStagesInput=el('input');allStagesInput.type='checkbox';allStagesInput.setAttribute('aria-label','全选阶段');allStagesInput.addEventListener('change',()=>setStageSelection(allStagesInput.checked?stages.map(stage=>stage.id):[]));const allStagesLabel=el('label','stage-option');allStagesLabel.append(allStagesInput,document.createTextNode('全选'));$('stage-checks').append(allStagesLabel);
+for(const [index,stage] of stages.entries()){const label=el('label','stage-option'),dot=el('span','swatch');dot.style.background=stageColors[index%stageColors.length];label.append(stageCheckbox(stage),dot,document.createTextNode(stageTitle(stage)));label.title=`${formatElapsed(elapsedAtLine(stage.source_start_line))}～${formatElapsed(elapsedAtLine(stage.source_end_line))} · ${stage.row_count} 个样本`;$('stage-checks').append(label);}
+$('stage-marked').disabled=!stages.some(stage=>stage.is_marked);
+$('stage-marked').addEventListener('click',()=>setStageSelection(stages.filter(stage=>stage.is_marked).map(stage=>stage.id)));
+$('stage-none').addEventListener('click',()=>setStageSelection([]));
+function el(tag,className,text){const node=document.createElement(tag);if(className)node.className=className;if(text!=null)node.textContent=text;return node;}
+function meta(id,pairs){for(const [name,value] of pairs)$(id).append(el('dt','',name),el('dd','',value??'—'));}
+$('report-title').textContent=report.tag;
+document.title=`AiProfile · ${report.tag} · CLI 原始数据`;
+meta('source-meta',[['原文件',report.sourceName],['样本数',String(report.sampleCount)],['指标数',String(report.metricSpecs.length)]]);
+meta('session-meta',[['设备',report.device.model],['会话',report.tag],['报告记录',report.timestamp]]);
+$('source-hash').textContent=`SHA-256\n${report.sourceSha256}`;
+$('audit-banner').textContent=report.findings.length?`数据核查：${report.findings.length} 个单元格待核实。保留原值，点击查看来源行和具体数值。`:'本轮规则未标记可疑值；不表示已验证硬件计数器正确性。';
+$('toggle-info').addEventListener('click',()=>{const hidden=document.body.classList.toggle('info-hidden');$('toggle-info').textContent=hidden?'展开来源信息':'收起来源信息';});
+for(const metric of report.overview){const box=el('div','metric');box.append(el('div','metric-label',metric.column));const value=el('div','metric-value');box.append(value);metricNodes.set(metric.column,value);$('metrics').append(box);}
+for(const stage of stages){const tr=el('tr','segment-row'),name=el('td'),label=el('label','stage-name');label.append(stageCheckbox(stage),document.createTextNode(stageTitle(stage)));name.append(label);tr.append(name,el('td','',stage.source_start_line),el('td','',stage.source_end_line),el('td','',stage.row_count),el('td','',stage.boundary_basis==='estimated_from_configured_period'?'按配置间隔估算，非 CLI 时间戳':'来源行'));$('segments').append(tr);}
+const sections={gpu:'GPU',shader:'Shader',stalls:'Stalls / Cache',bandwidth:'GPU Memory',cpu:'CPU',memory:'Device Memory',temperature:'Temperature'};
+for(const [id,title] of Object.entries(sections)){const specs=report.charts.filter(chart=>chart.section===id);if(!specs.length)continue;const section=el('section');section.id=id;section.append(el('h2','section-title',title));$('chart-sections').append(section);for(const spec of specs){const panel=el('article','panel'),head=el('div','panel-head');head.append(el('h2','',spec.title));panel.append(head);const body=el('div','panel-body'),status=el('div','hover-status'),canvas=el('canvas','chart'),legend=el('div','legend');canvas.setAttribute('aria-label',spec.items.map(item=>item.column).join(', '));canvas.setAttribute('role','img');body.append(status,canvas,legend);panel.append(body);section.append(panel);const view={spec,canvas,status,hidden:new Set(),drag:null};views.push(view);spec.items.forEach((item,index)=>{const button=el('button','',item.column),line=el('i');line.style.background=colors[index%colors.length];button.prepend(line);button.setAttribute('aria-pressed','true');button.addEventListener('click',()=>{if(view.hidden.has(item.key))view.hidden.delete(item.key);else view.hidden.add(item.key);button.setAttribute('aria-pressed',String(!view.hidden.has(item.key)));draw(view);});legend.append(button);});canvas.addEventListener('pointerdown',event=>{if(event.button!==0)return;view.drag={x:event.offsetX,line:lineAt(view,event.offsetX),end:lineAt(view,event.offsetX)};canvas.setPointerCapture(event.pointerId);});canvas.addEventListener('pointermove',event=>{hoverTime=nearestLine(lineAt(view,event.offsetX));if(view.drag)view.drag.end=lineAt(view,event.offsetX);drawAll();showTooltip(view,event);});canvas.addEventListener('pointerup',event=>{const drag=view.drag;view.drag=null;if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);if(drag&&Math.abs(event.offsetX-drag.x)>6)setRange(Math.min(drag.line,drag.end),Math.max(drag.line,drag.end));else selectLine(lineAt(view,event.offsetX));});canvas.addEventListener('pointercancel',()=>{view.drag=null;draw(view);});canvas.addEventListener('pointerleave',()=>{if(!view.drag){hoverTime=null;$('tooltip').style.display='none';drawAll();}});canvas.addEventListener('dblclick',resetRange);}}
+function renderAudit(){$('audit-rows').replaceChildren();let count=0;for(const finding of report.findings){const index=lowerBound(finding.line);if(index>=times.length||times[index]!==finding.line||!rowAllowed(index)||finding.line<range[0]||finding.line>range[1])continue;count++;const tr=el('tr','flagged'),cell=el('td'),button=el('button','button',finding.line);button.addEventListener('click',()=>{selectLine(finding.line);$('raw-sample').scrollIntoView({block:'start'});});cell.append(button);tr.append(cell,el('td','',finding.column),el('td','raw-value',finding.value),el('td','',finding.reason));$('audit-rows').append(tr);}$('audit-banner').textContent=`当前已选阶段：${count} 个单元格待核实。保留原始值，点击查看来源行。`;}
+function lowerBound(line){let low=0,high=times.length;while(low<high){const middle=(low+high)>>>1;if(times[middle]<line)low=middle+1;else high=middle;}return low;}
+function indices(){return [lowerBound(range[0]),lowerBound(range[1]+1)];}
+function nearestLine(line){if(!activeIndices.length)return null;let low=0,high=activeIndices.length;while(low<high){const mid=(low+high)>>>1;if(times[activeIndices[mid]]<line)low=mid+1;else high=mid;}const right=activeIndices[Math.min(low,activeIndices.length-1)],left=activeIndices[Math.max(0,low-1)];return line-times[left]<=times[right]-line?times[left]:times[right];}
+function selectLine(line){const target=nearestLine(Number(line));selectedIndex=target==null?-1:lowerBound(target);renderSample();drawAll();}
+function renderSample(){const sourceLine=selectedIndex>=0?times[selectedIndex]:null;$('source-row').value=sourceLine??'';$('overview-source').textContent=sourceLine?`${report.sourceName} · CSV 第 ${sourceLine} 行`:'当前未选中样本';for(const [column,node] of metricNodes){const raw=selectedIndex<0?null:report.rawColumns[column]?.[selectedIndex];node.textContent=formatMetric(column,raw);node.title=raw==null?'未采集':`CLI 原值：${raw}`;}const query=$('raw-search').value.toLowerCase();$('raw-metrics').replaceChildren();let count=0;for(const spec of report.metricSpecs){if(!spec.column.toLowerCase().includes(query))continue;const text=selectedIndex>=0?report.rawColumns[spec.column][selectedIndex]??'':'—',flags=report.findings.filter(item=>item.line===sourceLine&&item.column===spec.column);const tr=el('tr',flags.length?'flagged':'');tr.append(el('td','',spec.column),el('td','raw-value',text),el('td','',flags.map(item=>item.reason).join('；')));$('raw-metrics').append(tr);count++;}$('raw-count').textContent=`CSV 第 ${sourceLine??'—'} 行 · ${count} / ${report.metricSpecs.length} 列`;const position=activeIndices.indexOf(selectedIndex);$('previous-row').disabled=position<=0;$('next-row').disabled=position<0||position>=activeIndices.length-1;$('source-row').disabled=!activeIndices.length;}
+function syncRange(){activeIndices=selectedRowIndices();if(!activeIndices.includes(selectedIndex))selectedIndex=activeIndices.at(-1)??-1;$('range-start').value=Number(elapsedAtLine(range[0]).toFixed(6));$('range-end').value=Number(elapsedAtLine(range[1]).toFixed(6));for(const view of views)view.status.textContent=`已选标签 · ${formatElapsed(elapsedAtLine(range[0]))}～${formatElapsed(elapsedAtLine(range[1]))} · ${activeIndices.length} 个原始样本 · 时间按采样间隔估算`;for(const stage of stages)for(const input of stageInputs.get(stage.id)??[])input.checked=selectedStages.has(stage.id);allStagesInput.checked=stages.length>0&&selectedStages.size===stages.length;allStagesInput.indeterminate=selectedStages.size>0&&selectedStages.size<stages.length;$('stage-count').textContent=`${selectedStages.size} / ${stages.length} 个阶段 · ${activeIndices.length} 个 CLI 样本`;}
+function setRange(start,end){start=Math.max(firstLine,Math.round(Number(start)));end=Math.min(lastLine,Math.round(Number(end)));if(!Number.isFinite(start)||!Number.isFinite(end)||end<start){$('range-error').textContent='请选择有效的 CSV 起始行和结束行。';return;}range=[start,end];$('range-error').textContent='';hoverTime=null;$('tooltip').style.display='none';syncRange();renderSample();renderAudit();drawAll();}
+function resetRange(){setRange(firstLine,lastLine);}
+$('range-form').addEventListener('submit',event=>{event.preventDefault();const start=Number($('range-start').value),end=Number($('range-end').value);if(!Number.isFinite(start)||!Number.isFinite(end)||end<start){$('range-error').textContent='请选择有效的起点和终点时间。';return;}setRange(Math.ceil(lineAtElapsed(start)-1e-8),Math.floor(lineAtElapsed(end)+1e-8));});$('reset-range').addEventListener('click',resetRange);
+$('source-row').addEventListener('change',()=>selectLine($('source-row').value));$('raw-search').addEventListener('input',renderSample);
+$('previous-row').addEventListener('click',()=>{const position=activeIndices.indexOf(selectedIndex);if(position>0)selectLine(times[activeIndices[position-1]]);});$('next-row').addEventListener('click',()=>{const position=activeIndices.indexOf(selectedIndex);if(position>=0&&position<activeIndices.length-1)selectLine(times[activeIndices[position+1]]);});
+function plot(view){return {left:140,right:20,top:42,bottom:34,width:Math.max(1,view.canvas.clientWidth-160),height:Math.max(1,view.canvas.clientHeight-76)};}
+function lineAt(view,x){const p=plot(view),start=elapsedAtLine(range[0]),end=elapsedAtLine(range[1]);return lineAtElapsed(start+Math.max(0,Math.min(1,(x-p.left)/p.width))*(end-start));}
+function drawAll(){for(const view of views)draw(view);drawFps();}
+function draw(view){const canvas=view.canvas;if(!canvas.clientWidth||!canvas.clientHeight)return;const dpr=window.devicePixelRatio||1,w=canvas.clientWidth,h=canvas.clientHeight;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);const p=plot(view),[first,last]=indices();let minimum=0,maximum=0;for(const item of view.spec.items)if(!view.hidden.has(item.key)){const values=report.columns[item.column];for(let i=first;i<last;i++)if(rowAllowed(i)&&values[i]!=null){minimum=Math.min(minimum,values[i]);maximum=Math.max(maximum,values[i]);}}if(maximum===minimum)maximum=minimum+1;const span=maximum-minimum,display=resolveDisplay(view.spec.items[0].column,Math.max(Math.abs(minimum),Math.abs(maximum)));maximum+=span*.05;const x=line=>p.left+(elapsedAtLine(line)-elapsedAtLine(range[0]))/Math.max(.001,elapsedAtLine(range[1])-elapsedAtLine(range[0]))*p.width,y=value=>p.top+p.height-(value-minimum)/(maximum-minimum)*p.height;ctx.font='11px Consolas,monospace';ctx.fillStyle='#788b93';ctx.textAlign='left';ctx.fillText(display.unit||'CLI raw',8,22);for(let i=0;i<=4;i++){const value=minimum+(maximum-minimum)*i/4,gy=y(value);ctx.strokeStyle='#e6ecee';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(p.left,gy);ctx.lineTo(w-p.right,gy);ctx.stroke();ctx.fillStyle='#788b93';ctx.textAlign='right';ctx.fillText(readableUnits?formatAmount(value/display.divisor):String(Number(value.toPrecision(8))),p.left-10,gy+4);}const ticks=Math.max(2,Math.floor(p.width/120));for(let i=0;i<=ticks;i++){const line=range[0]+(range[1]-range[0])*i/ticks;ctx.textAlign=i===0?'left':i===ticks?'right':'center';ctx.fillText(formatElapsed(elapsedAtLine(line)),x(line),h-9);}ctx.save();ctx.beginPath();ctx.rect(p.left,0,p.width,p.top+p.height);ctx.clip();drawStageBands(ctx,x,p.left,w-p.right,range[0],range[1],'line');view.spec.items.forEach((item,index)=>{if(view.hidden.has(item.key))return;ctx.strokeStyle=colors[index%colors.length];ctx.lineWidth=1.5;ctx.beginPath();let pen=false;const values=report.columns[item.column];for(let i=first;i<last;i++){const value=values[i];if(!rowAllowed(i)||value==null){pen=false;continue;}if(pen)ctx.lineTo(x(times[i]),y(value));else{ctx.moveTo(x(times[i]),y(value));pen=true;}}ctx.stroke();if(last-first===1&&rowAllowed(first)&&values[first]!=null){ctx.beginPath();ctx.arc(x(times[first]),y(values[first]),3,0,Math.PI*2);ctx.fillStyle=ctx.strokeStyle;ctx.fill();}});const focus=hoverTime??times[selectedIndex];if(focus!=null&&focus>=range[0]&&focus<=range[1]&&rowAllowed(lowerBound(focus))){ctx.strokeStyle='#8b9caa';ctx.setLineDash([3,3]);ctx.beginPath();ctx.moveTo(x(focus),p.top);ctx.lineTo(x(focus),p.top+p.height);ctx.stroke();ctx.setLineDash([]);}if(view.drag){ctx.fillStyle='#137f8326';ctx.fillRect(x(Math.min(view.drag.line,view.drag.end)),p.top,Math.abs(x(view.drag.end)-x(view.drag.line)),p.height);}ctx.restore();if(!activeIndices.length){ctx.fillStyle='#7a8e96';ctx.textAlign='center';ctx.fillText('当前没有选中的阶段数据',p.left+p.width/2,p.top+p.height/2);}}
+function drawStageBands(ctx,x,left,right,start,end,axis){for(const [index,stage] of stages.entries()){if(!selectedStages.has(stage.id))continue;const stageStart=axis==='line'?stage.source_start_line:Number(stage.time_start_s??0),stageEnd=axis==='line'?stage.source_end_line:Number(stage.time_end_s??end);if(stageEnd<start||stageStart>end)continue;const a=Math.max(left,x(Math.max(start,stageStart))),b=Math.min(right,x(Math.min(end,stageEnd)));ctx.fillStyle=stageColors[index%stageColors.length];ctx.globalAlpha=.18;ctx.fillRect(a,7,Math.max(2,b-a),23);ctx.globalAlpha=1;if(b-a>45){ctx.fillStyle=stageColors[index%stageColors.length];ctx.textAlign='center';const title=stageTitle(stage),length=Math.max(1,Math.floor((b-a-12)/12));ctx.fillText(title.length>length?title.slice(0,length)+'…':title,(a+b)/2,23);}}}
+function drawFps(){const canvas=$('fps-chart'),w=canvas.clientWidth,h=canvas.clientHeight,dpr=window.devicePixelRatio||1;if(!w||!h)return;if(canvas.width!==Math.round(w*dpr)||canvas.height!==Math.round(h*dpr)){canvas.width=Math.round(w*dpr);canvas.height=Math.round(h*dpr);}const ctx=canvas.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,w,h);const rows=fpsSamples.map(sample=>({time:Number(sample['Elapsed (s)']),value:sample.FPS===''?null:Number(sample.FPS),stage:stageAtTime(Number(sample['Elapsed (s)']))})),visible=rows.filter(row=>row.stage>=0&&selectedStages.has(stages[row.stage].id));const latest=visible.at(-1);$('fps-value').textContent=latest?.value!=null&&Number.isFinite(latest.value)?String(latest.value):'—';if(!visible.length){ctx.fillStyle='#7a8e96';ctx.textAlign='center';ctx.font='13px sans-serif';ctx.fillText(fpsSamples.length?'当前选中阶段没有 FPS 数据':'此会话尚未采集 FPS',w/2,h/2);return;}const chosen=stages.filter(stage=>selectedStages.has(stage.id)),start=Math.min(...chosen.map(stage=>Number(stage.time_start_s??0))),end=Math.max(start+1,...chosen.map(stage=>Number(stage.time_end_s??rows.at(-1).time))),left=70,right=w-25,top=42,bottom=h-35,maximum=Math.max(1,...visible.map(row=>row.value??0))*1.1,x=time=>left+(time-start)/(end-start)*(right-left),y=value=>bottom-value/maximum*(bottom-top);ctx.font='11px Consolas,monospace';for(let i=0;i<=4;i++){const value=maximum*i/4,py=y(value);ctx.strokeStyle='#e6ecee';ctx.beginPath();ctx.moveTo(left,py);ctx.lineTo(right,py);ctx.stroke();ctx.fillStyle='#788b93';ctx.textAlign='right';ctx.fillText(value.toFixed(1),left-12,py+4);}for(let i=0;i<=5;i++){const time=start+(end-start)*i/5;ctx.textAlign=i===0?'left':i===5?'right':'center';ctx.fillText(formatElapsed(time),x(time),h-10);}drawStageBands(ctx,x,left,right,start,end,'time');ctx.strokeStyle='#137f83';ctx.lineWidth=1.8;ctx.beginPath();let pen=false;for(const row of rows){if(row.stage<0||!selectedStages.has(stages[row.stage].id)||row.value==null||!Number.isFinite(row.value)){pen=false;continue;}if(pen)ctx.lineTo(x(row.time),y(row.value));else{ctx.moveTo(x(row.time),y(row.value));pen=true;}}ctx.stroke();}
+function showTooltip(view,event){if(hoverTime==null)return;const index=lowerBound(hoverTime),tooltip=$('tooltip');tooltip.replaceChildren(el('strong','',`${formatElapsed(sampleTimes[index])} · ${stageTitle(stages[rowStages[index]])} · CSV 第 ${hoverTime} 行`));for(const [i,item] of view.spec.items.entries()){if(view.hidden.has(item.key))continue;const row=el('div','tip-row');const raw=report.rawColumns[item.column][index]??'';row.append(el('span','',item.column),el('b','',formatMetric(item.column,raw)));tooltip.append(row);if(readableUnits){const original=el('div','chart-note',`CLI 原值：${raw}`);original.style.margin='0 0 5px';tooltip.append(original);}}tooltip.style.display='block';tooltip.style.left=`${Math.max(8,Math.min(event.clientX+12,window.innerWidth-tooltip.offsetWidth-12))}px`;tooltip.style.top=`${Math.max(8,Math.min(event.clientY+12,window.innerHeight-tooltip.offsetHeight-12))}px`;}
+$('export-raw').addEventListener('click',()=>{const bytes=Uint8Array.from(atob(report.sourceBase64),character=>character.charCodeAt(0));const url=URL.createObjectURL(new Blob([bytes],{type:'text/csv'})),link=el('a');link.href=url;link.download=report.sourceName;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);});
+for(const tab of document.querySelectorAll('.tabs .tab'))tab.addEventListener('click',()=>{document.querySelector('.tab.active')?.classList.remove('active');tab.classList.add('active');});
+for(const id of ['range-start','range-end']){$(id).min=sampleTimes[0]??0;$(id).max=sampleTimes.at(-1)??0;}$('source-row').min=firstLine;$('source-row').max=lastLine;
+if(!times.length){$('range-form').hidden=true;$('export-raw').disabled=true;}
+window.addEventListener('resize',drawAll);new ResizeObserver(drawAll).observe($('chart-sections'));
+syncRange();renderSample();renderAudit();requestAnimationFrame(drawAll);
+</script></body></html>

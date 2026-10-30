@@ -3,3 +3,7 @@ __pycache__/
 .idea/
 .vscode/
 
+# Local captures, generated reports and their archives
+/Docs/Benchmarks/GPU/
+# Downloaded third-party GUI references
+/skills/ai-profile/*.htm

@@ -1,4 +1,4 @@
 @echo off
 cd /d "%~dp0"
-start "" python gui_panel.py
+start "" pythonw gui_panel.py
 

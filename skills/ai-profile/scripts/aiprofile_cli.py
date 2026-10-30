@@ -45,6 +45,7 @@ from metrics_analyzer import MetricsAnalyzer
 from report_engine import ReportEngine
 from camera_filter import CameraFilter
 from session_manager import SessionManager
+from gpu_metrics import console_gpu_summary, console_gpu_segment
 
 def run_interactive_record(
     package: Optional[str] = None,
@@ -100,7 +101,7 @@ def run_interactive_record(
 
     dev = session["device_env"]
     print("\n" + "=" * 70)
-    print("  🚀 AiProfile - 移动端 GPU 硬件总线实测 (PerfDog 交互录制模式)")
+    print("  🚀 AiProfile - 移动端 GPU 硬件计数器采样 (PerfDog 交互录制模式)")
     print("=" * 70)
     print(f"[Device] 设备: {dev['model']} (Root: {dev['has_root']}, SELinux: {dev['selinux']})")
     print(f"[App]    目标应用: {session['package']}")
@@ -143,15 +144,13 @@ def run_interactive_record(
         print(f"-> 带标签 CSV: {res['labeled_csv']}")
 
     ov = res["metrics"]
-    print(f"\n[整场物理均值]")
-    print(f"   DDR 读写总带宽: {ov['total_bw_sec_mb']} MB/s (单帧 {ov['total_bw_frame_mb']} MB/帧)")
-    print(f"   UBWC 压缩率: {ov['ubwc_compressed_pct']}% | GPU 频点: {ov['gpu_clk_mhz']} MHz | 均温: {ov.get('temperature_c', 0):.1f}°C")
+    print("\n" + console_gpu_summary(ov))
 
     segs = ov.get("segments", [])
     if segs:
         print(f"\n[PerfDog 分段标签对比]")
         for s in segs:
-            print(f"   🏷️ {s['label_name']:12s} ({s['duration_s']}s) -> DDR带宽: {s['total_bw_sec_mb']:6.1f} MB/s ({s['total_bw_frame_mb']:4.1f} MB/帧) | 频点: {s['gpu_clk_mhz']} MHz")
+            print(f"   {s['label_name']} (CSV L{s['source_start_line']}～L{s['source_end_line']}) -> {console_gpu_segment(s)}")
     print("=" * 70 + "\n")
 
 def run_profile_task(
@@ -192,7 +191,7 @@ def run_profile_task(
     adb.capture_screenshot(screen_png)
     mem_info = adb.get_process_memory(package)
 
-    print(f"[GPU] 正在对应用 {package} 原地执行 {duration} 秒硬件总线计数器采样 (采样周期 {period}ms)...")
+    print(f"[GPU] 正在对应用 {package} 原地执行 {duration} 秒 GPU 硬件计数器采样 (采样周期 {period}ms)...")
     collector.capture(package, raw_csv, duration_s=duration, period_ms=period, warmup_s=1.0)
 
     # 分析与报表
@@ -202,10 +201,8 @@ def run_profile_task(
 
     print(f"\n[DONE] 测试完成！")
     print(f"       -> 报告路径: {rep_path.resolve()}")
-    print(f"       -> DDR 物理读写带宽: {metrics_res['total_bw_sec_mb']} MB/s (单帧 {metrics_res['total_bw_frame_mb']} MB/帧)")
-    print(f"       -> 纹理读取带宽: {metrics_res['tex_read_sec_mb']} MB/s")
-    print(f"       -> UBWC 硬件无损压缩率: {metrics_res['ubwc_compressed_pct']}%")
-    print(f"       -> 显存占用: {mem_info['graphics_pss_mb']} MB | 物理总内存: {mem_info['total_pss_mb']} MB")
+    print(console_gpu_summary(metrics_res))
+    print(f"       -> Graphics PSS 快照: {mem_info['graphics_pss_mb']} MB | 应用 Total PSS: {mem_info['total_pss_mb']} MB")
 
     return out
 
@@ -218,7 +215,7 @@ def main():
     rec_p.add_argument("--package", help="目标应用包名 (省略则自动锁定前台应用)", default=None)
     rec_p.add_argument("--tag", help="本次测试标签名称", default="PerfDogRecord")
     rec_p.add_argument("--period", type=int, default=200, help="采样周期 (毫秒，默认 200，即每秒 5 次)")
-    rec_p.add_argument("--fps", type=float, default=60.0, help="基准帧率 (默认 60.0)")
+    rec_p.add_argument("--fps", type=float, default=60.0, help="兼容参数；原始数据模式不作 FPS 折算")
     rec_p.add_argument("--out", type=Path, default=None, help="自定义产物输出目录")
 
     # 2. 类似 PerfDog 的桌面悬浮窗 GUI
@@ -229,7 +226,7 @@ def main():
     start_p.add_argument("--package", help="目标应用包名 (省略则自动锁定当前前台)", default=None)
     start_p.add_argument("--tag", help="会话标签", default="LiveSession")
     start_p.add_argument("--period", type=int, default=200, help="采样周期 (ms，默认 200)")
-    start_p.add_argument("--fps", type=float, default=60.0, help="基准帧率 (默认 60.0)")
+    start_p.add_argument("--fps", type=float, default=60.0, help="兼容参数；原始数据模式不作 FPS 折算")
     start_p.add_argument("--launch", action="store_true", default=False, help="启动前先在手机上拉起该游戏")
     start_p.add_argument("--out", type=Path, default=None, help="输出目录")
 
@@ -246,7 +243,7 @@ def main():
     run_p.add_argument("--attach", action="store_true", default=True, help="原地挂载 (不重启应用，默认开启)")
     run_p.add_argument("--duration", type=float, default=3.0, help="采样时长 (秒，默认 3.0)")
     run_p.add_argument("--period", type=int, default=200, help="采样周期 (毫秒，默认 200)")
-    run_p.add_argument("--fps", type=float, default=60.0, help="单帧物理折算基准帧率 (默认 60.0)")
+    run_p.add_argument("--fps", type=float, default=60.0, help="兼容参数；原始数据模式不作 FPS 折算")
     run_p.add_argument("--out", type=Path, default=None, help="自定义产物输出目录")
 
     # 5. 截帧过滤
@@ -324,15 +321,13 @@ def main():
                 print(f"-> 增强 CSV:   {Path(res['labeled_csv']).name}")
 
             ov = res["metrics"]
-            print(f"\n[整场物理均值]")
-            print(f"   DDR 读写总带宽: {ov['total_bw_sec_mb']} MB/s (单帧 {ov['total_bw_frame_mb']} MB/帧)")
-            print(f"   UBWC 压缩率: {ov['ubwc_compressed_pct']}% | GPU 频点: {ov['gpu_clk_mhz']} MHz")
+            print("\n" + console_gpu_summary(ov))
 
             segs = ov.get("segments", [])
             if segs:
                 print(f"\n[PerfDog 标签分段对比]")
                 for s in segs:
-                    print(f"   🏷️ {s['label_name']:12s} ({s['duration_s']:4.1f}s) -> DDR带宽: {s['total_bw_sec_mb']:6.1f} MB/s ({s['total_bw_frame_mb']:4.1f} MB/帧) | 频点: {s['gpu_clk_mhz']} MHz")
+                    print(f"   {s['label_name']} (CSV L{s['source_start_line']}～L{s['source_end_line']}) -> {console_gpu_segment(s)}")
             print("=" * 65 + "\n")
 
             if not args.no_open and res["timeline_html"].exists():

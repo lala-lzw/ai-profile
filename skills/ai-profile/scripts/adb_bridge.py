@@ -44,6 +44,8 @@ class AdbBridge:
             encoding="utf-8",
             errors="replace",
             timeout=timeout,
+            # pythonw 启动的 GUI 没有控制台，避免每次调用 ADB 都弹出新窗口。
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         return CommandResult(proc.returncode, proc.stdout.strip(), proc.stderr.strip())
 
