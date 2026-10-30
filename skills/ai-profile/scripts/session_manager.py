@@ -158,3 +158,4 @@ class SessionManager:
             "labels_count": len(session["labels"]),
             "duration_s": round(time.time() - session["start_time"], 1)
         }
+
