@@ -36,6 +36,7 @@ def run_profile_task(
     tag: Optional[str] = None,
     attach: bool = True,
     duration: float = 3.0,
+    period: int = 200,
     fps: float = 60.0,
     output_dir: Optional[Path] = None
 ) -> Path:
@@ -68,8 +69,8 @@ def run_profile_task(
     adb.capture_screenshot(screen_png)
     mem_info = adb.get_process_memory(package)
 
-    print(f"[GPU] 正在对应用 {package} 原地执行 {duration} 秒硬件总线计数器采样...")
-    collector.capture(package, raw_csv, duration_s=duration, warmup_s=1.0)
+    print(f"[GPU] 正在对应用 {package} 原地执行 {duration} 秒硬件总线计数器采样 (采样周期 {period}ms)...")
+    collector.capture(package, raw_csv, duration_s=duration, period_ms=period, warmup_s=1.0)
 
     # 分析与报表
     analyzer = MetricsAnalyzer(fps_baseline=fps)
@@ -93,7 +94,8 @@ def main():
     run_p.add_argument("--package", help="目标应用包名 (若省略则自动获取前台应用)", default=None)
     run_p.add_argument("--tag", help="单次采样的标签名称 (如 '鸿都城_高配')", default=None)
     run_p.add_argument("--attach", action="store_true", default=True, help="原地挂载 (不重启应用，默认开启)")
-    run_p.add_argument("--duration", type=float, default=3.0, help="采样时长 (秒，默认 3.0)")
+    run_p.add_argument("--duration", type=float, default=3.0, help="采样时长 (秒，默认 3.0，支持 1800 等长跑)")
+    run_p.add_argument("--period", type=int, default=200, help="采样周期 (毫秒，默认 200，即每秒 5 次)")
     run_p.add_argument("--fps", type=float, default=60.0, help="单帧物理折算基准帧率 (默认 60.0)")
     run_p.add_argument("--out", type=Path, default=None, help="自定义产物输出目录")
 
@@ -109,6 +111,7 @@ def main():
             tag=args.tag,
             attach=args.attach,
             duration=args.duration,
+            period=args.period,
             fps=args.fps,
             output_dir=args.out
         )
