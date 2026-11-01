@@ -50,6 +50,12 @@ python skills/ai-profile/scripts/aiprofile_cli.py stop            # 结束并生
 
 数据口径与产物说明见 [SKILL.md](skills/ai-profile/SKILL.md)。
 
+## 与 PerfDog 对照
+
+在 iQOO 10 上对同一 Demo 的两次独立运行做过对照：28 项 GPU 计数器的曲线相关系数中位数为 0.937，FPS 因贴近帧率上限不具参考性。
+仅为单设备单次结果，条件、局限与全部指标见 [对照验证](docs/perfdog_comparison.md)；
+对照脚本为 `skills/ai-profile/scripts/compare_perfdog.py`。
+
 ## 平台
 
 Windows 已在真机上使用；macOS / Linux 的自动化测试由 CI 覆盖，真机采样尚未验证，欢迎反馈。
