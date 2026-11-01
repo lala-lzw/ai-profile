@@ -13,5 +13,6 @@ foreach ($n in $Names) {
     if (Test-Path -LiteralPath $to) { Remove-Item -LiteralPath $to -Recurse -Force }
     Copy-Item -LiteralPath $from -Destination $to -Recurse
     Get-ChildItem -LiteralPath $to -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Force
+    Get-ChildItem -LiteralPath $to -Filter *.htm -File | Remove-Item -Force
     Write-Host "已安装 $n -> $to"
 }

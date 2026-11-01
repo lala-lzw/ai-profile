@@ -12,5 +12,6 @@ for n in $NAMES; do
   rm -rf "$DEST/$n"
   cp -R "$SRC/$n" "$DEST/$n"
   find "$DEST/$n" -name __pycache__ -type d -prune -exec rm -rf {} +
+  find "$DEST/$n" -maxdepth 1 -name "*.htm" -delete
   echo "已安装 $n -> $DEST/$n"
 done
