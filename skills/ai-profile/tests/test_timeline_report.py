@@ -23,10 +23,21 @@ class TimelineReportTests(unittest.TestCase):
             writer.writerow(["Time (s)", "Read Total (Bytes/sec)", "Write Total (Bytes/sec)", "GPU % Utilization"])
             writer.writerows(rows)
         output = self.root / "timeline.html"
-        generate_timeline("test", {"labeled_csv": str(source), **extra}, output)
+        device = extra.pop("device", None)
+        generate_timeline("test", {"labeled_csv": str(source), **extra}, output, device=device)
         html = output.read_text(encoding="utf-8")
         payload = json.loads(re.search(r"const report = (.*);", html).group(1))
         return html, payload
+
+    def test_device_metadata_reaches_session_card(self):
+        html, data = self.build([[0, 1, 2, 3]], device={
+            "model": "iQOO 10",
+            "android": "15",
+            "graphics_api": "OpenGL ES 3.2 / Vulkan",
+        })
+        self.assertEqual(data["device"]["android"], "15")
+        self.assertEqual(data["device"]["graphics_api"], "OpenGL ES 3.2 / Vulkan")
+        self.assertIn("图形 API", html)
 
     def test_missing_and_nonfinite_values_are_gaps_and_zero_remains_valid(self):
         html, data = self.build([

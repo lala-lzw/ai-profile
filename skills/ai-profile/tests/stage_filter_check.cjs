@@ -27,13 +27,14 @@ class Element {
   replaceChildren(...nodes) { this.children = nodes; }
   addEventListener(name, handler) { this.listeners[name] = handler; }
   setAttribute(name, value) { this.attrs[name] = value; }
-  click() { this.listeners.click?.({}); }
+  click() { if (!this.disabled) this.listeners.click?.({}); }
   getContext() { return this.context; }
   setPointerCapture() {} hasPointerCapture() { return false; }
   scrollIntoView() {}
 }
 
 const elements = new Map();
+const windowListeners = new Map();
 const context = vm.createContext({
   console, Blob, URL, Uint8Array, atob,
   document: {
@@ -47,7 +48,8 @@ const context = vm.createContext({
     createTextNode: text => ({ textContent: text }),
     querySelectorAll: () => [],
   },
-  window: { devicePixelRatio: 1, innerWidth: 1200, innerHeight: 900, addEventListener() {} },
+  window: { devicePixelRatio: 1, innerWidth: 1200, innerHeight: 900,
+    addEventListener(name, handler) { windowListeners.set(name, handler); } },
   ResizeObserver: class { observe() {} },
   requestAnimationFrame: callback => callback(),
   setTimeout() {},
@@ -69,8 +71,60 @@ assert.equal(run('lineAtElapsed(.6)'), 5);
 assert.ok(run('views[0].canvas.context.texts.some(text=>text.includes(":"))'));
 assert.ok(run('views[0].canvas.context.texts.every(text=>!/^L[0-9]+$/.test(text))'));
 
+// Zooming through actual pointer handlers must always have a visible way back.
+assert.ok(run('views.length > 1'), 'exercise navigation shared by multiple charts');
+assert.equal(run('rangeControls.length'), run('views.length + 1'));
+assert.equal(run('rangeControls.every(({back,reset})=>back.disabled&&reset.disabled)'), true);
+const canvas = run('views[0].canvas');
+canvas.listeners.pointerdown({button: 0, offsetX: 260, pointerId: 1});
+canvas.listeners.pointerup({offsetX: 860, pointerId: 1});
+assert.deepEqual(Array.from(run('range')), [3, 8], 'pointerup must use the final position even without a pointermove');
+assert.equal(elements.get('range-start').value, .2);
+assert.equal(elements.get('range-end').value, 1.2);
+assert.equal(run('rangeControls.every(({back,reset})=>!back.disabled&&!reset.disabled)'), true);
+canvas.listeners.pointerdown({button: 0, offsetX: 812, pointerId: 1});
+canvas.listeners.pointerup({offsetX: 308, pointerId: 1});
+assert.deepEqual(Array.from(run('range')), [4, 7], 'reverse drag must also be reversible');
+elements.get('previous-range').click();
+assert.deepEqual(Array.from(run('range')), [3, 8]);
+run('rangeControls.at(-1).back.click()');
+assert.deepEqual(Array.from(run('range')), [2, 9], 'a different chart can restore the original view');
+assert.equal(run('rangeControls.every(({back,reset})=>back.disabled&&reset.disabled)'), true);
+
+canvas.listeners.pointerdown({button: 0, offsetX: 380, pointerId: 1});
+canvas.listeners.pointerup({offsetX: 380, pointerId: 1});
+assert.equal(run('times[selectedIndex]'), 4);
+assert.deepEqual(Array.from(run('range')), [2, 9], 'clicking a point must not zoom');
+canvas.listeners.pointerdown({button: 0, offsetX: 260, pointerId: 1});
+canvas.listeners.pointercancel();
+assert.equal(run('rangeHistory.length'), 0, 'cancelled drags must not change history');
+
+elements.get('range-start').value = .6;
+elements.get('range-end').value = .6;
+elements.get('range-form').listeners.submit({preventDefault(){}});
+assert.deepEqual(Array.from(run('range')), [5, 5]);
+run('setRange(5,5);setRange(7,4);setRange(NaN,8)');
+assert.equal(run('rangeHistory.length'), 1, 'unchanged or invalid ranges must not add undo steps');
+const escape = {key: 'Escape', preventDefault(){ this.prevented = true; }};
+windowListeners.get('keydown')({...escape, target: {closest: () => ({})}});
+assert.deepEqual(Array.from(run('range')), [5, 5], 'Esc must leave an active input alone');
+windowListeners.get('keydown')(escape);
+assert.equal(escape.prevented, true);
+assert.deepEqual(Array.from(run('range')), [2, 9], 'Esc must recover even from a single sample');
+assert.equal(elements.get('range-error').textContent, '');
+windowListeners.get('keydown')({key: 'Escape', preventDefault(){ assert.fail('no history to undo'); }});
+
+run('setRange(4,6);rangeControls.at(-1).reset.click()');
+assert.deepEqual(Array.from(run('range')), [2, 9]);
+elements.get('previous-range').click();
+assert.deepEqual(Array.from(run('range')), [4, 6], 'restoring full range can itself be undone');
+canvas.listeners.dblclick();
+assert.deepEqual(Array.from(run('range')), [2, 9]);
+
 // One-click removal of prep samples also removes the prep FPS peak and flags.
 elements.get('stage-marked').click();
+assert.equal(run('rangeHistory.length'), 0, 'stage changes must discard ranges from the old filter');
+assert.equal(elements.get('previous-range').disabled, true);
 assert.equal(run('activeIndices.length'), 5);
 assert.deepEqual(Array.from(run('range')), [5, 9]);
 assert.equal(elements.get('range-start').value,.6);
@@ -104,6 +158,10 @@ assert.equal(run('selectedFpsSamples().length'), 2);
 assert.equal(elements.get('fps-value').textContent, '40');
 run('setRange(5,5)');
 assert.equal(run('activeIndices.length'), 1);
+elements.get('previous-range').click();
+assert.deepEqual(Array.from(run('range')), [5, 6]);
+assert.equal(run('selectedStages.size'), 1, 'undo must keep the current label filter');
+run('setRange(5,5)');
 run('resetRange()');
 assert.equal(run('activeIndices.length'), 2);
 elements.get('range-start').value=.8;
@@ -127,4 +185,4 @@ assert.equal(run('selectedFpsSamples().length'), 6);
 assert.equal(run('allStagesInput.indeterminate'), false);
 assert.equal(run('JSON.stringify(report.rawColumns)'), valuesBefore);
 assert.equal(run('report.sourceBase64'), sourceBefore);
-console.log('Stage filtering passed: multiselect, prep exclusion, FPS time alignment, gap rendering, axes, navigation, empty selection and unchanged source data.');
+console.log('Stage filtering passed: reversible pointer zoom, nested history, single sample recovery, Esc, reset, multiselect, prep exclusion, FPS time alignment, gap rendering, axes, navigation, empty selection and unchanged source data.');

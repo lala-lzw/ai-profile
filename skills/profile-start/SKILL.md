@@ -14,3 +14,9 @@ profile-start
 ```
 
 若用户附带了参数（如 `--launch` 或 `--package <包名>`），原样透传。
+
+执行入口：同级目录 `../ai-profile/scripts/aiprofile_cli.py`（相对本文件解析为绝对路径后调用）。
+```
+python <ai-profile 技能目录>/scripts/aiprofile_cli.py start
+```
+若已把 `ai-profile/bin` 加入 PATH，也可直接使用同名快捷命令；缺少 ai-profile 技能时先安装它。

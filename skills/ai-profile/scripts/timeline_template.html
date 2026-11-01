@@ -52,6 +52,8 @@ body.info-hidden .info-columns { display: none; }
 .panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 19px 22px; border-bottom: 1px solid #edf1f3; }
 .panel-head h2 { margin: 0; font-size: 15px; font-weight: 650; }
 .panel-head small { color: var(--muted); font-size: 12px; }
+.chart-range-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.chart-range-controls .button { padding: 6px 10px; font-size: 12px; }
 .collapse { width: 26px; height: 26px; border: 0; border-radius: 6px; background: #f1f5f6; color: #7b919d; line-height: 20px; }
 .panel-body { padding: 22px; }
 .panel.collapsed .panel-body { display: none; }
@@ -135,6 +137,7 @@ th:first-child { background: #f0f5f6; }
   .topnote { font-size: 10px; }
   .brand { font-size: 19px; }
   .panel-head { padding: 16px; }
+  .panel-head:has(.chart-range-controls) { align-items: flex-start; flex-direction: column; }
   .panel-head small { display: none; }
   .chart-stat { min-width: 90px; }
   .chart { height: 244px; }
@@ -143,7 +146,7 @@ th:first-child { background: #f0f5f6; }
 }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
 @media print {
-  .topbar, .tabs, .actions, .rangebar, .collapse, .tip { display: none; }
+  .topbar, .tabs, .actions, .rangebar, .chart-range-controls, .collapse, .tip { display: none; }
   .wrap { padding: 0; max-width: none; }
   .panel { break-inside: avoid; }
   .panel.collapsed .panel-body { display: block; }
@@ -186,7 +189,7 @@ th:first-child { background: #f0f5f6; }
 <section class="stage-filter" aria-label="标签筛选"><div class="stage-filter-head"><strong>标签筛选</strong><span class="stage-count" id="stage-count" aria-live="polite"></span><button class="button" id="stage-marked">仅已打标</button><button class="button" id="stage-none">全部取消</button></div><div class="stage-checks" id="stage-checks"></div></section>
 <section class="panel" id="fps"><div class="panel-head"><h2>FPS</h2></div><div class="panel-body"><div class="metric-value" id="fps-value">未采集</div><canvas class="chart" id="fps-chart" aria-label="FPS 随采样时间变化" role="img"></canvas></div></section>
 <section class="panel" id="overview"><div class="panel-head"><h2>当前 GPU 原始样本</h2><small id="overview-source"></small></div><div class="panel-body"><div class="metrics" id="metrics"></div><div class="section-caption"><h3>阶段标签</h3><small>勾选可同时筛选 FPS 和全部指标曲线</small></div><div class="table-wrap"><table><thead><tr><th>阶段</th><th>起始 CSV 行</th><th>结束 CSV 行</th><th>样本数</th><th>边界依据</th></tr></thead><tbody id="segments"></tbody></table></div></div></section>
-<form class="rangebar" id="range-form"><strong>时间范围</strong><label for="range-start">起点 [s]</label><input id="range-start" type="number" step="any" required><span>—</span><label for="range-end">终点 [s]</label><input id="range-end" type="number" step="any" required><button class="button primary" type="submit">查看范围</button><button class="button" type="button" id="reset-range">全程</button><span class="rangehint">拖动曲线选择时段 · 双击恢复全程</span><span id="range-error" class="rangeerror" role="status"></span></form>
+<form class="rangebar" id="range-form"><strong>时间范围</strong><label for="range-start">起点 [s]</label><input id="range-start" type="number" step="any" required><span>—</span><label for="range-end">终点 [s]</label><input id="range-end" type="number" step="any" required><button class="button primary" type="submit">查看范围</button><button class="button" type="button" id="previous-range" disabled>返回上一范围</button><button class="button" type="button" id="reset-range">恢复全程</button><span class="rangehint">拖动曲线选择时段 · Esc 返回上一范围 · 双击恢复全程</span><span id="range-error" class="rangeerror" role="status"></span></form>
 <div id="chart-sections"></div>
 <section class="panel" id="raw-sample"><div class="panel-head"><h2>全部 CLI 原始列</h2><small id="raw-count"></small></div><div class="panel-body"><div class="sample-control"><button class="button" id="previous-row">上一样本</button><label for="source-row">CSV 文件行</label><input id="source-row" type="number" step="1"><button class="button" id="next-row">下一样本</button><input id="raw-search" aria-label="搜索 CLI 原始列名" placeholder="搜索原始列名…"></div><div class="table-wrap"><table><thead><tr><th>CLI 原始列名</th><th>CLI 原始值</th><th>核查提示</th></tr></thead><tbody id="raw-metrics"></tbody></table></div></div></section>
 <section class="panel" id="data-audit"><div class="panel-head"><h2>数据核查：待核实项</h2><small>原值保留</small></div><div class="panel-body"><p class="overview-note">量级提示用于定位待核实的计数器，不等于已确认数值错误。未知单位不作推断。点击来源行可查看对应原始样本。</p><div class="table-wrap"><table id="audit-table"><thead><tr><th>CSV 文件行</th><th>CLI 原始列名</th><th>CLI 原始值</th><th>待核实原因</th></tr></thead><tbody id="audit-rows"></tbody></table></div></div></section>
@@ -212,6 +215,7 @@ report.columns=Object.fromEntries(Object.entries(report.rawColumns).map(([column
 report.series=report.columns;
 let range=[firstLine,lastLine],selectedIndex=Math.max(0,times.length-1),hoverTime=null;
 const views=[],metricNodes=new Map();
+const rangeHistory=[],rangeControls=[{back:$('previous-range'),reset:$('reset-range')}];
 let readableUnits=true;
 function resolveDisplay(column,magnitude=0){if(!readableUnits)return {divisor:1,unit:'',compact:false};const base=report.displayUnits?.[column]??{divisor:1,unit:'',compact:true};if(base.compact){for(const [divisor,prefix] of [[1e12,'T'],[1e9,'G'],[1e6,'M'],[1e3,'K']])if(Math.abs(magnitude)>=divisor)return {divisor,unit:prefix+base.unit,compact:false};}return base;}
 function formatAmount(value){if(value===0)return '0';if(Math.abs(value)<.01)return String(Number(value.toPrecision(4)));return String(Number(value.toFixed(2)));}
@@ -229,7 +233,7 @@ function stageAtTime(time){return stages.findIndex(stage=>time>=Number(stage.tim
 function fpsAllowed(sample){const index=stageAtTime(Number(sample['Elapsed (s)']));return index>=0&&selectedStages.has(stages[index].id);}
 function selectedFpsSamples(){return fpsSamples.filter(fpsAllowed);}
 function selectedRowIndices(){const [first,last]=indices();const result=[];for(let i=first;i<last;i++)if(rowAllowed(i))result.push(i);return result;}
-function setStageSelection(ids){selectedStages.clear();for(const id of ids)selectedStages.add(id);const chosen=stages.filter(stage=>selectedStages.has(stage.id));range=chosen.length?[Math.min(...chosen.map(stage=>stage.source_start_line)),Math.max(...chosen.map(stage=>stage.source_end_line))]:[firstLine,lastLine];hoverTime=null;$('tooltip').style.display='none';syncRange();renderSample();renderAudit();drawAll();}
+function setStageSelection(ids){selectedStages.clear();for(const id of ids)selectedStages.add(id);rangeHistory.length=0;const chosen=stages.filter(stage=>selectedStages.has(stage.id));range=chosen.length?[Math.min(...chosen.map(stage=>stage.source_start_line)),Math.max(...chosen.map(stage=>stage.source_end_line))]:[firstLine,lastLine];$('range-error').textContent='';hoverTime=null;$('tooltip').style.display='none';syncRange();renderSample();renderAudit();drawAll();}
 function toggleStage(id,checked){const ids=new Set(selectedStages);if(checked)ids.add(id);else ids.delete(id);setStageSelection(ids);}
 function stageCheckbox(stage){const input=el('input');input.type='checkbox';input.checked=selectedStages.has(stage.id);input.setAttribute('aria-label',`显示阶段 ${stageTitle(stage)}`);input.addEventListener('change',()=>toggleStage(stage.id,input.checked));if(!stageInputs.has(stage.id))stageInputs.set(stage.id,[]);stageInputs.get(stage.id).push(input);return input;}
 const allStagesInput=el('input');allStagesInput.type='checkbox';allStagesInput.setAttribute('aria-label','全选阶段');allStagesInput.addEventListener('change',()=>setStageSelection(allStagesInput.checked?stages.map(stage=>stage.id):[]));const allStagesLabel=el('label','stage-option');allStagesLabel.append(allStagesInput,document.createTextNode('全选'));$('stage-checks').append(allStagesLabel);
@@ -242,24 +246,53 @@ function meta(id,pairs){for(const [name,value] of pairs)$(id).append(el('dt','',
 $('report-title').textContent=report.tag;
 document.title=`AiProfile · ${report.tag} · CLI 原始数据`;
 meta('source-meta',[['原文件',report.sourceName],['样本数',String(report.sampleCount)],['指标数',String(report.metricSpecs.length)]]);
-meta('session-meta',[['设备',report.device.model],['会话',report.tag],['报告记录',report.timestamp]]);
+meta('session-meta',[['设备',report.device.model],['Android',report.device.android],['图形 API',report.device.graphics_api],['会话',report.tag],['报告记录',report.timestamp]]);
 $('source-hash').textContent=`SHA-256\n${report.sourceSha256}`;
 $('audit-banner').textContent=report.findings.length?`数据核查：${report.findings.length} 个单元格待核实。保留原值，点击查看来源行和具体数值。`:'本轮规则未标记可疑值；不表示已验证硬件计数器正确性。';
 $('toggle-info').addEventListener('click',()=>{const hidden=document.body.classList.toggle('info-hidden');$('toggle-info').textContent=hidden?'展开来源信息':'收起来源信息';});
 for(const metric of report.overview){const box=el('div','metric');box.append(el('div','metric-label',metric.column));const value=el('div','metric-value');box.append(value);metricNodes.set(metric.column,value);$('metrics').append(box);}
 for(const stage of stages){const tr=el('tr','segment-row'),name=el('td'),label=el('label','stage-name');label.append(stageCheckbox(stage),document.createTextNode(stageTitle(stage)));name.append(label);tr.append(name,el('td','',stage.source_start_line),el('td','',stage.source_end_line),el('td','',stage.row_count),el('td','',stage.boundary_basis==='estimated_from_configured_period'?'按配置间隔估算，非 CLI 时间戳':'来源行'));$('segments').append(tr);}
 const sections={gpu:'GPU',shader:'Shader',stalls:'Stalls / Cache',bandwidth:'GPU Memory',cpu:'CPU',memory:'Device Memory',temperature:'Temperature'};
-for(const [id,title] of Object.entries(sections)){const specs=report.charts.filter(chart=>chart.section===id);if(!specs.length)continue;const section=el('section');section.id=id;section.append(el('h2','section-title',title));$('chart-sections').append(section);for(const spec of specs){const panel=el('article','panel'),head=el('div','panel-head');head.append(el('h2','',spec.title));panel.append(head);const body=el('div','panel-body'),status=el('div','hover-status'),canvas=el('canvas','chart'),legend=el('div','legend');canvas.setAttribute('aria-label',spec.items.map(item=>item.column).join(', '));canvas.setAttribute('role','img');body.append(status,canvas,legend);panel.append(body);section.append(panel);const view={spec,canvas,status,hidden:new Set(),drag:null};views.push(view);spec.items.forEach((item,index)=>{const button=el('button','',item.column),line=el('i');line.style.background=colors[index%colors.length];button.prepend(line);button.setAttribute('aria-pressed','true');button.addEventListener('click',()=>{if(view.hidden.has(item.key))view.hidden.delete(item.key);else view.hidden.add(item.key);button.setAttribute('aria-pressed',String(!view.hidden.has(item.key)));draw(view);});legend.append(button);});canvas.addEventListener('pointerdown',event=>{if(event.button!==0)return;view.drag={x:event.offsetX,line:lineAt(view,event.offsetX),end:lineAt(view,event.offsetX)};canvas.setPointerCapture(event.pointerId);});canvas.addEventListener('pointermove',event=>{hoverTime=nearestLine(lineAt(view,event.offsetX));if(view.drag)view.drag.end=lineAt(view,event.offsetX);drawAll();showTooltip(view,event);});canvas.addEventListener('pointerup',event=>{const drag=view.drag;view.drag=null;if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);if(drag&&Math.abs(event.offsetX-drag.x)>6)setRange(Math.min(drag.line,drag.end),Math.max(drag.line,drag.end));else selectLine(lineAt(view,event.offsetX));});canvas.addEventListener('pointercancel',()=>{view.drag=null;draw(view);});canvas.addEventListener('pointerleave',()=>{if(!view.drag){hoverTime=null;$('tooltip').style.display='none';drawAll();}});canvas.addEventListener('dblclick',resetRange);}}
+function createRangeControls(){
+  const controls=el('div','chart-range-controls'),back=el('button','button','返回上一范围'),reset=el('button','button','恢复全程');
+  controls.setAttribute('role','group');controls.setAttribute('aria-label','时间范围');
+  back.type=reset.type='button';back.title='返回上一次查看的时间范围（Esc）';reset.title='恢复全程时间范围，保留标签筛选';
+  back.addEventListener('click',previousRange);reset.addEventListener('click',resetRange);
+  controls.append(back,reset);rangeControls.push({back,reset});return controls;
+}
+for(const [id,title] of Object.entries(sections)){
+  const specs=report.charts.filter(chart=>chart.section===id);if(!specs.length)continue;
+  const section=el('section');section.id=id;section.append(el('h2','section-title',title));$('chart-sections').append(section);
+  for(const spec of specs){
+    const panel=el('article','panel'),head=el('div','panel-head');head.append(el('h2','',spec.title),createRangeControls());panel.append(head);
+    const body=el('div','panel-body'),status=el('div','hover-status'),canvas=el('canvas','chart'),legend=el('div','legend');
+    canvas.setAttribute('aria-label',spec.items.map(item=>item.column).join(', '));canvas.setAttribute('role','img');body.append(status,canvas,legend);panel.append(body);section.append(panel);
+    const view={spec,canvas,status,hidden:new Set(),drag:null};views.push(view);
+    spec.items.forEach((item,index)=>{const button=el('button','',item.column),line=el('i');line.style.background=colors[index%colors.length];button.prepend(line);button.setAttribute('aria-pressed','true');button.addEventListener('click',()=>{if(view.hidden.has(item.key))view.hidden.delete(item.key);else view.hidden.add(item.key);button.setAttribute('aria-pressed',String(!view.hidden.has(item.key)));draw(view);});legend.append(button);});
+    canvas.addEventListener('pointerdown',event=>{if(event.button!==0)return;view.drag={x:event.offsetX,line:lineAt(view,event.offsetX),end:lineAt(view,event.offsetX)};canvas.setPointerCapture(event.pointerId);});
+    canvas.addEventListener('pointermove',event=>{hoverTime=nearestLine(lineAt(view,event.offsetX));if(view.drag)view.drag.end=lineAt(view,event.offsetX);drawAll();showTooltip(view,event);});
+    canvas.addEventListener('pointerup',event=>{
+      const drag=view.drag,end=lineAt(view,event.offsetX);view.drag=null;if(canvas.hasPointerCapture(event.pointerId))canvas.releasePointerCapture(event.pointerId);
+      if(drag&&Math.abs(event.offsetX-drag.x)>6)setRange(Math.min(drag.line,end),Math.max(drag.line,end));else selectLine(end);
+    });
+    canvas.addEventListener('pointercancel',()=>{view.drag=null;draw(view);});
+    canvas.addEventListener('pointerleave',()=>{if(!view.drag){hoverTime=null;$('tooltip').style.display='none';drawAll();}});
+    canvas.addEventListener('dblclick',resetRange);
+  }
+}
 function renderAudit(){$('audit-rows').replaceChildren();let count=0;for(const finding of report.findings){const index=lowerBound(finding.line);if(index>=times.length||times[index]!==finding.line||!rowAllowed(index)||finding.line<range[0]||finding.line>range[1])continue;count++;const tr=el('tr','flagged'),cell=el('td'),button=el('button','button',finding.line);button.addEventListener('click',()=>{selectLine(finding.line);$('raw-sample').scrollIntoView({block:'start'});});cell.append(button);tr.append(cell,el('td','',finding.column),el('td','raw-value',finding.value),el('td','',finding.reason));$('audit-rows').append(tr);}$('audit-banner').textContent=`当前已选阶段：${count} 个单元格待核实。保留原始值，点击查看来源行。`;}
 function lowerBound(line){let low=0,high=times.length;while(low<high){const middle=(low+high)>>>1;if(times[middle]<line)low=middle+1;else high=middle;}return low;}
 function indices(){return [lowerBound(range[0]),lowerBound(range[1]+1)];}
 function nearestLine(line){if(!activeIndices.length)return null;let low=0,high=activeIndices.length;while(low<high){const mid=(low+high)>>>1;if(times[activeIndices[mid]]<line)low=mid+1;else high=mid;}const right=activeIndices[Math.min(low,activeIndices.length-1)],left=activeIndices[Math.max(0,low-1)];return line-times[left]<=times[right]-line?times[left]:times[right];}
 function selectLine(line){const target=nearestLine(Number(line));selectedIndex=target==null?-1:lowerBound(target);renderSample();drawAll();}
 function renderSample(){const sourceLine=selectedIndex>=0?times[selectedIndex]:null;$('source-row').value=sourceLine??'';$('overview-source').textContent=sourceLine?`${report.sourceName} · CSV 第 ${sourceLine} 行`:'当前未选中样本';for(const [column,node] of metricNodes){const raw=selectedIndex<0?null:report.rawColumns[column]?.[selectedIndex];node.textContent=formatMetric(column,raw);node.title=raw==null?'未采集':`CLI 原值：${raw}`;}const query=$('raw-search').value.toLowerCase();$('raw-metrics').replaceChildren();let count=0;for(const spec of report.metricSpecs){if(!spec.column.toLowerCase().includes(query))continue;const text=selectedIndex>=0?report.rawColumns[spec.column][selectedIndex]??'':'—',flags=report.findings.filter(item=>item.line===sourceLine&&item.column===spec.column);const tr=el('tr',flags.length?'flagged':'');tr.append(el('td','',spec.column),el('td','raw-value',text),el('td','',flags.map(item=>item.reason).join('；')));$('raw-metrics').append(tr);count++;}$('raw-count').textContent=`CSV 第 ${sourceLine??'—'} 行 · ${count} / ${report.metricSpecs.length} 列`;const position=activeIndices.indexOf(selectedIndex);$('previous-row').disabled=position<=0;$('next-row').disabled=position<0||position>=activeIndices.length-1;$('source-row').disabled=!activeIndices.length;}
-function syncRange(){activeIndices=selectedRowIndices();if(!activeIndices.includes(selectedIndex))selectedIndex=activeIndices.at(-1)??-1;$('range-start').value=Number(elapsedAtLine(range[0]).toFixed(6));$('range-end').value=Number(elapsedAtLine(range[1]).toFixed(6));for(const view of views)view.status.textContent=`已选标签 · ${formatElapsed(elapsedAtLine(range[0]))}～${formatElapsed(elapsedAtLine(range[1]))} · ${activeIndices.length} 个原始样本 · 时间按采样间隔估算`;for(const stage of stages)for(const input of stageInputs.get(stage.id)??[])input.checked=selectedStages.has(stage.id);allStagesInput.checked=stages.length>0&&selectedStages.size===stages.length;allStagesInput.indeterminate=selectedStages.size>0&&selectedStages.size<stages.length;$('stage-count').textContent=`${selectedStages.size} / ${stages.length} 个阶段 · ${activeIndices.length} 个 CLI 样本`;}
-function setRange(start,end){start=Math.max(firstLine,Math.round(Number(start)));end=Math.min(lastLine,Math.round(Number(end)));if(!Number.isFinite(start)||!Number.isFinite(end)||end<start){$('range-error').textContent='请选择有效的 CSV 起始行和结束行。';return;}range=[start,end];$('range-error').textContent='';hoverTime=null;$('tooltip').style.display='none';syncRange();renderSample();renderAudit();drawAll();}
+function syncRange(){activeIndices=selectedRowIndices();if(!activeIndices.includes(selectedIndex))selectedIndex=activeIndices.at(-1)??-1;$('range-start').value=Number(elapsedAtLine(range[0]).toFixed(6));$('range-end').value=Number(elapsedAtLine(range[1]).toFixed(6));for(const {back,reset} of rangeControls){back.disabled=!rangeHistory.length;reset.disabled=!times.length||(range[0]===firstLine&&range[1]===lastLine);}for(const view of views)view.status.textContent=`已选标签 · ${formatElapsed(elapsedAtLine(range[0]))}～${formatElapsed(elapsedAtLine(range[1]))} · ${activeIndices.length} 个原始样本 · 时间按采样间隔估算`;for(const stage of stages)for(const input of stageInputs.get(stage.id)??[])input.checked=selectedStages.has(stage.id);allStagesInput.checked=stages.length>0&&selectedStages.size===stages.length;allStagesInput.indeterminate=selectedStages.size>0&&selectedStages.size<stages.length;$('stage-count').textContent=`${selectedStages.size} / ${stages.length} 个阶段 · ${activeIndices.length} 个 CLI 样本`;}
+function setRange(start,end,remember=true){start=Math.max(firstLine,Math.round(Number(start)));end=Math.min(lastLine,Math.round(Number(end)));if(!Number.isFinite(start)||!Number.isFinite(end)||end<start){$('range-error').textContent='请选择有效的 CSV 起始行和结束行。';return;}if(remember&&(start!==range[0]||end!==range[1]))rangeHistory.push([...range]);range=[start,end];$('range-error').textContent='';hoverTime=null;$('tooltip').style.display='none';syncRange();renderSample();renderAudit();drawAll();}
+function previousRange(){const previous=rangeHistory.pop();if(previous)setRange(...previous,false);}
 function resetRange(){setRange(firstLine,lastLine);}
 $('range-form').addEventListener('submit',event=>{event.preventDefault();const start=Number($('range-start').value),end=Number($('range-end').value);if(!Number.isFinite(start)||!Number.isFinite(end)||end<start){$('range-error').textContent='请选择有效的起点和终点时间。';return;}setRange(Math.ceil(lineAtElapsed(start)-1e-8),Math.floor(lineAtElapsed(end)+1e-8));});$('reset-range').addEventListener('click',resetRange);
+$('previous-range').addEventListener('click',previousRange);
+window.addEventListener('keydown',event=>{if(event.key!=='Escape'||event.defaultPrevented||event.isComposing||event.target?.closest('input, textarea, select, [contenteditable]'))return;if(rangeHistory.length){event.preventDefault();previousRange();}});
 $('source-row').addEventListener('change',()=>selectLine($('source-row').value));$('raw-search').addEventListener('input',renderSample);
 $('previous-row').addEventListener('click',()=>{const position=activeIndices.indexOf(selectedIndex);if(position>0)selectLine(times[activeIndices[position-1]]);});$('next-row').addEventListener('click',()=>{const position=activeIndices.indexOf(selectedIndex);if(position>=0&&position<activeIndices.length-1)selectLine(times[activeIndices[position+1]]);});
 function plot(view){return {left:140,right:20,top:42,bottom:34,width:Math.max(1,view.canvas.clientWidth-160),height:Math.max(1,view.canvas.clientHeight-76)};}

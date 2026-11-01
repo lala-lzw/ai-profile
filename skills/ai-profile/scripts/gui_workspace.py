@@ -290,12 +290,12 @@ class PerfDogGui:
         settings = tk.Frame(notebook, bg=SIDE, padx=8, pady=10)
         notebook.add(device_tab, text="设备信息")
         notebook.add(settings, text="采样设置")
-        self.device_info = ttk.Treeview(device_tab, columns=("name","value"), show="", height=5,
+        self.device_info = ttk.Treeview(device_tab, columns=("name","value"), show="", height=6,
                                        style="Info.Treeview", selectmode="none")
         self.device_info.column("name", width=82, stretch=False)
         self.device_info.column("value", width=160, stretch=True)
         self.device_info.pack(fill=tk.X, pady=8)
-        for key,label in (("model","型号"),("android","Android"),("serial","序列号"),
+        for key,label in (("model","型号"),("android","Android"),("graphics_api","图形 API"),("serial","序列号"),
                           ("resolution","分辨率"),("temperature","设备温度")):
             self.device_info.insert("",tk.END,iid=key,values=(label,"—"))
         self.tag_var, self.period_var = tk.StringVar(value="AiProfileSession"), tk.StringVar(value="200")
@@ -516,8 +516,9 @@ class PerfDogGui:
             bridge = AdbBridge(serial)
             model = bridge.shell("getprop ro.product.model",timeout=5).stdout
             android = bridge.shell("getprop ro.build.version.release",timeout=5).stdout
+            graphics_api = bridge.get_graphics_api(timeout=5)
             resolution = bridge.shell("wm size",timeout=5).stdout.splitlines()
-            return {"serial":serial,"model":model,"android":android,
+            return {"serial":serial,"model":model,"android":android,"graphics_api":graphics_api,
                     "resolution":resolution[-1].partition(":")[2].strip() if resolution else "—",
                     "apps":bridge.get_installed_apps(force_refresh=True)}
         self._background("apps",load)
@@ -534,8 +535,8 @@ class PerfDogGui:
             f"{app['name']}{'  [前台]' if app['is_foreground'] else ''}" for app in self.installed_apps]
         index = next((i for i,app in enumerate(self.installed_apps,1) if app["is_foreground"]),0)
         self.app_combo.current(index)
-        for key in ("model","android","serial","resolution"):
-            self._set_device_info(key,result[key])
+        for key in ("model","android","graphics_api","serial","resolution"):
+            self._set_device_info(key,result.get(key))
         self._on_app_selected()
         self.log_label.configure(text="设备已就绪。点击开始后采集完整硬件数据，并显示实时预览。",fg=MUTED)
         self._sync_controls()
@@ -609,6 +610,8 @@ class PerfDogGui:
         model = session.get("device_env",{}).get("model","已连接设备")
         self.connection_label.configure(text=f"●  {model}",fg=ACCENT)
         self._set_device_info("model",model)
+        self._set_device_info("android",session.get("device_env",{}).get("android"))
+        self._set_device_info("graphics_api",session.get("device_env",{}).get("graphics_api"))
         self._set_device_info("serial",session.get("serial") or self.mgr.adb.serial)
         self.status_label.configure(text="●  正在采样",fg=ACCENT)
         self.preview_label.configure(text="横轴时间 · GPU 按间隔估算")

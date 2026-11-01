@@ -8,10 +8,12 @@ description: >-
 
 # AiProfile — GPU 采样与离线分析
 
-脚本入口为本技能目录下的 `scripts/aiprofile_cli.py`，Windows 命令包装器位于 `bin/`。
+脚本入口为本技能目录下的 `scripts/aiprofile_cli.py`；`bin/` 内有 Windows（`.cmd`）与 macOS / Linux（无后缀 sh）快捷包装器，可选加入 PATH。
 命令从项目工作目录运行，默认产物保存在该目录的 `Docs/Benchmarks/GPU/aiprofile_<时间>/<会话名>/`。
-需要 Python（含 Tkinter）、ADB、已授权 Android 设备，以及可用的 Qualcomm sdpcli。
-可用 `SDPCLI_PATH` 指向本地 sdpcli；采样会话状态保存在用户目录的 `.aiprofile_session.json`。
+需要 Python 3（在 3.14 上测试；桌面面板需 Tkinter）、ADB、已授权的骁龙 / Adreno Android 设备，以及自行下载的 Qualcomm sdpcli（本仓库不包含）。
+可用 `SDPCLI_PATH` 指向 sdpcli 文件或其所在目录，也可放入 `~/.aiprofile/sdpcli/`；采样会话状态保存在用户目录的 `.aiprofile_session.json`。
+首次在其他电脑使用、缺少 sdpcli 或更换安装目录时，先阅读
+[SDP CLI 下载与安装](references/sdpcli_setup.md)，按其中的官网入口、Android 包选择、环境变量配置和验证步骤准备依赖。
 
 ## 选择入口
 
@@ -23,7 +25,7 @@ description: >-
 | 结束采样、`/profile-stop` | `profile-stop` | 停止、拉取数据并生成报告 |
 
 `--launch` 表示开始采样时拉起指定应用。没有这项参数时按前台应用原地采样。
-桌面入口通过 `pythonw` 启动，ADB 子进程不弹控制台。重开面板可恢复已有活动会话。
+Windows 桌面入口通过 `pythonw` 启动，ADB 子进程不弹控制台；macOS / Linux 直接用 Python 启动。重开面板可恢复已有活动会话。
 
 ## 桌面工作台
 

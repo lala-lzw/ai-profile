@@ -63,6 +63,8 @@ class AdbBridge:
 
         res = self.shell("getprop ro.product.model")
         model = res.stdout if res.ok else "Unknown"
+        android = self.shell("getprop ro.build.version.release")
+        android_version = android.stdout if android.ok else "Unknown"
 
         su_test = self.su_shell("id")
         has_root = su_test.ok and "uid=0" in su_test.stdout
@@ -78,10 +80,44 @@ class AdbBridge:
 
         self._cached_env = {
             "model": model,
+            "android": android_version,
+            "graphics_api": self.get_graphics_api(),
             "has_root": has_root,
             "selinux": selinux
         }
         return self._cached_env
+
+    def get_graphics_api(self, timeout: Optional[float] = None) -> str:
+        """读取设备声明的图形 API 能力。
+
+        Android 不提供一个稳定的、无需应用协作的“当前应用 API”接口，因此这里
+        报告系统公开的 OpenGL ES 版本和 Vulkan 能力，并保留未知状态而不猜测。
+        """
+        apis: list[str] = []
+
+        # ro.opengles.version 使用 major << 16 | minor 的整数编码，例如
+        # 196610 == 3.2。部分厂商会直接返回可读字符串，原样保留。
+        gl = self.shell("getprop ro.opengles.version", timeout=timeout)
+        if gl.ok and gl.stdout:
+            raw = gl.stdout.strip()
+            try:
+                encoded = int(raw, 0)
+                if encoded > 0xFFFF:
+                    apis.append(f"OpenGL ES {encoded >> 16}.{encoded & 0xFFFF}")
+                else:
+                    apis.append(f"OpenGL ES {raw}")
+            except ValueError:
+                apis.append(raw if raw.lower().startswith("opengl") else f"OpenGL ES {raw}")
+
+        # pm list features 是 Android 公开的 Vulkan 能力声明；版本编码在不同
+        # 厂商上并不总是一致，故仅显示 Vulkan 能力名称，避免伪造精确版本。
+        features = self.shell("pm list features", timeout=timeout)
+        if features.ok:
+            feature_lines = {line.strip() for line in features.stdout.splitlines()}
+            if any("android.hardware.vulkan" in line for line in feature_lines):
+                apis.append("Vulkan")
+
+        return " / ".join(dict.fromkeys(apis)) or "未检测到"
 
     def get_foreground_app(self) -> tuple[Optional[str], Optional[str]]:
         """检测当前真机前台运行的包名和主 Activity"""

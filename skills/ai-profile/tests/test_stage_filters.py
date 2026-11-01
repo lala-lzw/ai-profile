@@ -44,8 +44,8 @@ class StageFilterTests(unittest.TestCase):
             raw = root/"native.csv"
             with raw.open("w",newline="",encoding="utf-8") as stream:
                 writer=csv.writer(stream)
-                writer.writerow(["GPU % Utilization"])
-                writer.writerows([[value] for value in [900,700,500,10,20,30,40,50]])
+                writer.writerow(["GPU % Utilization", "Read Total (Bytes/sec)"])
+                writer.writerows([[value, value*1000] for value in [900,700,500,10,20,30,40,50]])
             fps = root/"fps.csv"
             with fps.open("w",newline="",encoding="utf-8") as stream:
                 writer=csv.DictWriter(stream,fieldnames=["Elapsed (s)","FPS"])

@@ -39,14 +39,33 @@ class SdpCollector:
     def _find_local_binary() -> Optional[Path]:
         """定位宿主机上的 Android aarch64 sdpcli 二进制及其依赖库"""
         configured = os.environ.get("SDPCLI_PATH")
-        if configured and Path(configured).is_file():
-            return Path(configured)
+        if configured:
+            path = Path(configured).expanduser()
+            if path.is_dir():
+                path = path / "sdpcli"
+            if path.is_file():
+                return path
 
-        local_app_data = os.environ.get("LOCALAPPDATA")
-        if local_app_data:
-            candidate = Path(local_app_data) / "Qualcomm" / "SnapdragonProfilerCLI" / "Android" / "2026.8.0" / "sdpcli"
-            if candidate.is_file():
-                return candidate
+        home = Path.home()
+        roots = [home / ".aiprofile" / "sdpcli"]
+        for env_name in ("LOCALAPPDATA", "APPDATA"):
+            base = os.environ.get(env_name)
+            if base:
+                roots.append(Path(base) / "Qualcomm" / "SnapdragonProfilerCLI" / "Android")
+        roots.append(home / "Qualcomm" / "SnapdragonProfilerCLI" / "Android")
+        roots.append(home / ".local" / "share" / "Qualcomm" / "SnapdragonProfilerCLI" / "Android")
+
+        for root in roots:
+            direct = root / "sdpcli"
+            if direct.is_file():
+                return direct
+            if root.is_dir():
+                # 版本目录如 2026.8.0；按目录名倒序，优先较新的版本。
+                versions = sorted((p for p in root.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
+                for version_dir in versions:
+                    candidate = version_dir / "sdpcli"
+                    if candidate.is_file():
+                        return candidate
 
         return None
 

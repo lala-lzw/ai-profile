@@ -1,8 +1,3 @@
 @echo off
 setlocal
-if exist "%~dp0..\scripts\gui_panel.py" (
-    set "GUI_SCRIPT=%~dp0..\scripts\gui_panel.py"
-) else (
-    set "GUI_SCRIPT=C:\Users\user\Documents\Git\common-agent-skills\skills\ai-profile\scripts\gui_panel.py"
-)
-start "" pythonw "%GUI_SCRIPT%" %*
+where pythonw >nul 2>nul && (start "" pythonw "%~dp0..\scripts\gui_panel.py" %*) || (start "" python "%~dp0..\scripts\gui_panel.py" %*)

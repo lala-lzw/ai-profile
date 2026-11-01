@@ -5,10 +5,10 @@ AiProfile Skill - 统一命令行与入口脚本 (Unified CLI)
 
 用法示例：
 1. 【PerfDog 交互模式】点击即开始，回车即打标签，敲 q 即结束：
-   python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py record --tag "大世界实测"
+   python aiprofile_cli.py record --tag "大世界实测"
 
 2. 【PerfDog 悬浮窗 GUI】像 PerfDog 一样打开桌面图形小窗口控制：
-   python C:/Users/user/.gemini/config/skills/ai-profile/scripts/aiprofile_cli.py gui
+   python aiprofile_cli.py gui
 
 3. 【分立命令控制】适合自动化脚本或 Agent 工具链：
    python aiprofile_cli.py start [--package com.xxx.game] [--tag "Boss战"]

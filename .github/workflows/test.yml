@@ -1,0 +1,25 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Tk (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk xvfb
+      - name: Run tests
+        shell: bash
+        run: |
+          cd skills/ai-profile
+          if [ "$RUNNER_OS" = "Linux" ]; then xvfb-run -a python -m unittest discover -s tests -v; else python -m unittest discover -s tests -v; fi
