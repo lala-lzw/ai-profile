@@ -54,7 +54,7 @@ python skills/ai-profile/scripts/aiprofile_cli.py stop            # 结束并生
 
 在 iQOO 10 上对同一 Demo 的两次独立运行做过对照：28 项 GPU 计数器的曲线相关系数中位数为 0.937，FPS 因贴近帧率上限不具参考性。
 仅为单设备单次结果，条件、局限与全部指标见 [对照验证](docs/perfdog_comparison.md)；
-对照脚本为 `skills/ai-profile/scripts/compare_perfdog.py`。
+对照脚本为 `skills/ai-profile/scripts/compare_perfdog.py`，脱敏示例数据与离线报告见 [examples/iqoo10-demo](examples/iqoo10-demo/README.md)。
 
 ## 平台
 

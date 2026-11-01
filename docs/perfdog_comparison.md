@@ -10,13 +10,13 @@
 | 项目 | 内容 |
 | --- | --- |
 | 设备 | iQOO 10 |
-| 被测内容 | 作者自制的 Demo，两次运行使用同一台设备 |
-| PerfDog | 导出 `.xlsx`，每 1 秒一个样本，运行于 2026-10-27 |
-| AiProfile | sdpcli 原始 CSV，配置采样间隔 200 ms，运行于 2026-10-30 |
+| 被测内容 | 作者自制的 Demo；两次运行使用同一台设备、同一场景流程 |
+| PerfDog | 导出 `.xlsx`，每 1 秒一个样本 |
+| AiProfile | sdpcli 原始 CSV，配置采样间隔 200 ms |
 | 比较区间 | 起点标签 `scene` 至终点标签 `end`，约 477 秒 |
 | 聚合 | 每 5 秒取均值，共 96 个窗口；某一侧缺失的窗口不参与统计 |
 
-**两次是独立运行，相隔三天，不是同时采集。** 因此绝对数值、局部峰谷都会有差异，下面比较的是曲线形状。
+**两次是独立运行（相隔数天），不是同时采集。** 因此绝对数值、局部峰谷都会有差异，下面比较的是曲线形状。
 
 ## 结果
 
@@ -75,16 +75,19 @@ sdpcli 的 CSV 没有逐行时间戳，AiProfile 的 GPU 横轴由「样本序�
 
 ## 局限
 
-- 单设备、单个 Demo、单次运行；两次运行日期不同。
+- 单设备、单个 Demo、单次运行；两次运行不在同一天。
 - 时间对齐依赖人工标签和线性校正。
 - PerfDog 的计数器来自其导出表中名称相同的列，本文未核对两者的内部定义是否完全相同。
 - 这是对照而非认证。PerfDog 是其权利人的产品，本项目与其无关联。
 
 ## 复现
 
+本页对应的脱敏数据在 [examples/iqoo10-demo](../examples/iqoo10-demo/README.md)，可直接复现：
+
 ```bash
-python skills/ai-profile/scripts/compare_perfdog.py <AiProfile 会话目录> <PerfDog.xlsx> --out-dir out --plot
-python skills/ai-profile/scripts/compare_perfdog.py <会话目录> <PerfDog.xlsx> --out-dir out --align shift
+python skills/ai-profile/scripts/compare_perfdog.py examples/iqoo10-demo examples/iqoo10-demo/perfdog/perfdog_gpu_counters.csv --out-dir out --plot
+python skills/ai-profile/scripts/compare_perfdog.py examples/iqoo10-demo examples/iqoo10-demo/perfdog/perfdog_gpu_counters.csv --out-dir out --align shift
 ```
 
-会话目录需包含 `summary.json`，且至少有起点和终点两个标签。结果表输出为 `out/perfdog_comparison_*.csv`。
+用自己的数据时，第一个参数是 AiProfile 会话目录（含 `summary.json`，至少有起点和终点两个标签），
+第二个参数是 PerfDog 导出的 `.xlsx` 或同表头的精简 `.csv`。结果表输出为 `out/perfdog_comparison_*.csv`。

@@ -45,8 +45,29 @@ def number(value):
         return None
 
 
+def column_letter(index: int) -> str:
+    letters = ""
+    index += 1
+    while index:
+        index, rem = divmod(index - 1, 26)
+        letters = chr(65 + rem) + letters
+    return letters
+
+
+def read_perfdog_csv(path: Path):
+    """读取精简 CSV（表头与 PerfDog 导出一致：Num、time、FPS、GPU Counter:<组>:<名称>）。"""
+    with path.open(encoding="utf-8-sig", newline="") as handle:
+        table = list(csv.reader(handle))
+    headers = {column_letter(i): name for i, name in enumerate(table[0])}
+    samples = [{column_letter(i): cell for i, cell in enumerate(row)} for row in table[1:] if row]
+    samples = [r for r in samples if number(r.get("A")) is not None and number(r.get("B")) is not None]
+    return headers, samples
+
+
 def read_perfdog(path: Path):
-    """读取 PerfDog 导出表第一张工作表，返回 (列名映射, 数据行列表)。"""
+    """读取 PerfDog 导出表（.xlsx 第一张工作表或精简 .csv），返回 (列名映射, 数据行列表)。"""
+    if path.suffix.lower() == ".csv":
+        return read_perfdog_csv(path)
     with zipfile.ZipFile(path) as archive:
         strings = []
         if "xl/sharedStrings.xml" in archive.namelist():
@@ -162,7 +183,7 @@ def build(session: Path, xlsx: Path, bin_s: float, align: str, start_label: str,
         a = bin_means(ai, 0, span, bin_s)
         b = bin_means(pd, 0, span, bin_s)
         results[name] = dict(a=a, b=b, **compare_series(a, b))
-    meta = dict(device=summary.get("device", {}), ai_date=summary.get("timestamp_utc", "")[:10],
+    meta = dict(device=summary.get("device", {}),
                 bin_s=bin_s, align=align,
                 real_duration_s=real, estimated_duration_s=estimated, scale=scale,
                 ai_period_ms=summary["period_ms_configured"], perfdog_period_ms=1000)
@@ -221,7 +242,7 @@ def plot(results, meta, path: Path):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="AiProfile 与 PerfDog 导出表对照分析")
     parser.add_argument("session", type=Path, help="AiProfile 会话目录（含 summary.json）")
-    parser.add_argument("perfdog", type=Path, help="PerfDog 导出的 .xlsx")
+    parser.add_argument("perfdog", type=Path, help="PerfDog 导出的 .xlsx，或同表头的精简 .csv")
     parser.add_argument("--out-dir", type=Path, default=Path("."), help="输出目录")
     parser.add_argument("--bin", type=float, default=5.0, help="聚合窗口秒数，默认 5")
     parser.add_argument("--align", choices=("calibrated", "shift"), default="calibrated",
