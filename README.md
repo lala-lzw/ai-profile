@@ -4,6 +4,16 @@ Android 真机 GPU 性能采样技能（Agent Skill）：驱动 Qualcomm `sdpcli
 提供桌面工作台、阶段打标、SurfaceFlinger FPS，并生成保留原始 CSV 的离线时间轴报告。
 可被 Claude Code 等支持 `SKILL.md` 的 Agent 调用，也可直接当命令行工具使用。
 
+## 截图
+
+桌面工作台（未采样状态）：
+
+![AiProfile 桌面工作台](docs/images/workbench.png)
+
+离线报告：按阶段标签筛选，查看内存带宽曲线：
+
+![AiProfile 离线报告](docs/images/report.png)
+
 ## 功能
 
 - 桌面工作台：选择设备与应用，实时查看 GPU 曲线与 FPS，回车或预设标签打阶段标记。
