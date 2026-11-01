@@ -89,5 +89,5 @@ python skills/ai-profile/scripts/compare_perfdog.py examples/iqoo10-demo example
 python skills/ai-profile/scripts/compare_perfdog.py examples/iqoo10-demo examples/iqoo10-demo/perfdog/perfdog_gpu_counters.csv --out-dir out --align shift
 ```
 
-用自己的数据时，第一个参数是 AiProfile 会话目录（含 `summary.json`，至少有起点和终点两个标签），
+用自己的数据时，第一个参数是 AiProfile 会话目录（含 `summary.json`；有起点和终点两个标签时才会校正时长，标签更少时自动退化为仅平移），
 第二个参数是 PerfDog 导出的 `.xlsx` 或同表头的精简 `.csv`。结果表输出为 `out/perfdog_comparison_*.csv`。

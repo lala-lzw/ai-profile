@@ -148,14 +148,74 @@ def compare_series(a, b):
                 gap=(2 * abs(ma - mb) / denom if denom else 0.0), mean_ai=ma, mean_perfdog=mb)
 
 
-def build(session: Path, xlsx: Path, bin_s: float, align: str, start_label: str, end_label: str):
+def resolve_window(summary, start_label=None, end_label=None):
+    """确定对照区间。标签不规整时尽量宽容：无标签用整段，只有一个标签则到采样结束。
+
+    返回 dict(gpu_start, gpu_end, fps_start, fps_end, has_end, notes)。
+    """
+    period_s = summary["period_ms_configured"] / 1000
+    labels = summary.get("labels") or []
+    segments = summary.get("segments") or []
+    fps_times = [number(r.get("Elapsed (s)")) for r in summary.get("fps_samples", [])]
+    fps_times = [x for x in fps_times if x is not None]
+    gpu_total = len(summary["rows"]) * period_s
+    notes = []
+
+    start_idx = 0
+    if start_label is not None:
+        starts = [i for i, item in enumerate(labels) if item["name"] == start_label]
+        if not starts:
+            raise ValueError(f"未找到起点标签 {start_label!r}，现有标签：{[x['name'] for x in labels]}")
+        start_idx = starts[0]
+    end_idx = None
+    if end_label is not None:
+        ends = [i for i, item in enumerate(labels) if item["name"] == end_label and i > start_idx]
+        if not ends:
+            raise ValueError(f"起点之后没有终点标签 {end_label!r}，现有标签：{[x['name'] for x in labels]}")
+        end_idx = ends[-1]
+    elif len(labels) - start_idx >= 2:
+        end_idx = len(labels) - 1
+
+    # segments[0] 是首个标签之前的阶段；其后与 labels 一一对应
+    aligned = len(segments) == len(labels) + 1
+
+    def stage_start(index):
+        if aligned:
+            return segments[index + 1]["start_time_s"]
+        name = labels[index]["name"]
+        return next(s["start_time_s"] for s in segments if s["label_name"] == name)
+
+    if not labels:
+        notes.append("会话没有标签，使用整段采样；无法按打标时长校正，按仅平移处理。")
+        gpu_start, gpu_end = 0.0, gpu_total
+        fps_start = fps_times[0] if fps_times else 0.0
+        fps_end = (fps_times[-1] + 1.0) if fps_times else gpu_total
+    else:
+        gpu_start = stage_start(start_idx)
+        fps_start = labels[start_idx]["time_s"]
+        if end_idx is not None:
+            gpu_end = stage_start(end_idx)
+            fps_end = labels[end_idx]["time_s"]
+        else:
+            notes.append("没有终点标签，区间取到采样结束；无法按打标时长校正，按仅平移处理。")
+            gpu_end = gpu_total
+            fps_end = (fps_times[-1] + 1.0) if fps_times else gpu_total
+    if gpu_end <= gpu_start or fps_end <= fps_start:
+        raise ValueError("对照区间为空，请检查标签顺序。")
+    return dict(gpu_start=gpu_start, gpu_end=gpu_end, fps_start=fps_start, fps_end=fps_end,
+                has_end=end_idx is not None, notes=notes)
+
+
+def build(session: Path, xlsx: Path, bin_s: float, align: str, start_label=None, end_label=None):
     summary = json.loads((session / "summary.json").read_text(encoding="utf-8"))
     period_s = summary["period_ms_configured"] / 1000
-    labels = {item["name"]: item for item in summary["labels"]}
-    segment = next(s for s in summary["segments"] if s["label_name"] == start_label)
-    gpu_start, gpu_end = segment["start_time_s"], segment["end_time_s"]
-    fps_start, fps_end = labels[start_label]["time_s"], labels[end_label]["time_s"]
+    window = resolve_window(summary, start_label, end_label)
+    gpu_start, gpu_end = window["gpu_start"], window["gpu_end"]
+    fps_start, fps_end = window["fps_start"], window["fps_end"]
     real, estimated = fps_end - fps_start, gpu_end - gpu_start
+    # 只有起点和终点都由人工打标确定时，时长校正才有依据
+    if align == "calibrated" and not window["has_end"]:
+        align = "shift"
     scale = real / estimated if align == "calibrated" else 1.0
 
     headers, samples = read_perfdog(xlsx)
@@ -177,7 +237,8 @@ def build(session: Path, xlsx: Path, bin_s: float, align: str, start_label: str,
         pd = [(t, number(r.get(fps_column))) for t, r in zip(pd_times, samples)]
         series["FPS"] = (ai, pd)
 
-    span = math.floor(real)  # 与离线对比页一致：区间取整数秒，末尾不足 1 秒的尾巴不计
+    # 与离线对比页一致：区间取整数秒，末尾不足 1 秒的尾巴不计；无法校正时取两侧较短者
+    span = math.floor(real if align == "calibrated" else min(real, estimated))
     results = {}
     for name, (ai, pd) in series.items():
         a = bin_means(ai, 0, span, bin_s)
@@ -185,7 +246,7 @@ def build(session: Path, xlsx: Path, bin_s: float, align: str, start_label: str,
         results[name] = dict(a=a, b=b, **compare_series(a, b))
     meta = dict(device=summary.get("device", {}),
                 bin_s=bin_s, align=align,
-                real_duration_s=real, estimated_duration_s=estimated, scale=scale,
+                real_duration_s=real, estimated_duration_s=estimated, scale=scale, notes=window["notes"],
                 ai_period_ms=summary["period_ms_configured"], perfdog_period_ms=1000)
     return results, meta
 
@@ -247,17 +308,20 @@ def main(argv=None):
     parser.add_argument("--bin", type=float, default=5.0, help="聚合窗口秒数，默认 5")
     parser.add_argument("--align", choices=("calibrated", "shift"), default="calibrated",
                         help="calibrated=按实际打标时长校正；shift=只平移起点")
-    parser.add_argument("--start-label", default=None, help="起点标签，默认第一个标签")
-    parser.add_argument("--end-label", default=None, help="终点标签，默认最后一个标签")
+    parser.add_argument("--start-label", default=None, help="起点标签名，默认第一个标签；没有标签时用整段")
+    parser.add_argument("--end-label", default=None, help="终点标签名，默认最后一个标签；只有一个或没有标签时到采样结束")
     parser.add_argument("--plot", action="store_true", help="输出对照图（需要 matplotlib）")
     args = parser.parse_args(argv)
 
-    summary = json.loads((args.session / "summary.json").read_text(encoding="utf-8"))
-    names = [item["name"] for item in summary["labels"]]
-    if len(names) < 2:
-        parser.error("会话至少需要两个标签（起点与终点）")
-    results, meta = build(args.session, args.perfdog, args.bin, args.align,
-                          args.start_label or names[0], args.end_label or names[-1])
+    try:
+        results, meta = build(args.session, args.perfdog, args.bin, args.align,
+                              args.start_label, args.end_label)
+    except (ValueError, FileNotFoundError) as exc:
+        parser.error(str(exc))
+    for note in meta["notes"]:
+        print(f"提示：{note}")
+    if meta["align"] != args.align:
+        args.align = meta["align"]
     args.out_dir.mkdir(parents=True, exist_ok=True)
     write_csv(results, args.out_dir / f"perfdog_comparison_{args.align}.csv")
     rs = sorted(s["r"] for s in results.values() if s["r"] is not None)

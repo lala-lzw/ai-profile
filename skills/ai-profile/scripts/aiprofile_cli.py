@@ -230,6 +230,9 @@ def main():
     start_p.add_argument("--launch", action="store_true", default=False, help="启动前先在手机上拉起该游戏")
     start_p.add_argument("--out", type=Path, default=None, help="输出目录")
 
+    subparsers.add_parser("status", help="查看当前活跃会话（应用、已采样时长、标签、输出目录）")
+    subparsers.add_parser("abort", help="放弃当前会话并清除状态（忘记结束或设备已断连时使用）")
+
     mark_p = subparsers.add_parser("mark", help="为当前活跃会话打标签")
     mark_p.add_argument("label", nargs="?", default="Marker", type=str, help="标签文本 (如 '鸿都城', '放技能')")
 
@@ -272,6 +275,7 @@ def main():
             print(f"-> 目标应用: {cur.get('package')}")
             print(f"-> 打标签命令: profile-mark <标签名>")
             print(f"-> 结束命令:   profile-stop")
+            print(f"-> 若是上次忘记结束的旧会话：aiprofile status 查看，aiprofile abort 放弃")
             return
 
         try:
@@ -288,11 +292,31 @@ def main():
             print("=" * 65)
             print(f"-> 目标应用: {s['package']}")
             print(f"-> 采样频率: 每秒 {1000/s['period_ms']:.1f} 次 ({s['period_ms']}ms 周期)")
+            print(f"-> 输出目录: {s['output_dir']}")
             print(f"-> 打标签:   profile-mark <标签名称>  (或 aiprofile mark <标签>)")
             print(f"-> 结束采样: profile-stop             (或 aiprofile stop)")
             print("-" * 65 + "\n")
         except Exception as e:
             print(f"[AiProfile 启动失败]: {e}")
+
+    elif args.cmd == "status":
+        info = SessionManager().describe_session()
+        if not info:
+            print("[AiProfile] 当前没有正在运行的采样会话。")
+            return
+        minutes, seconds = divmod(int(info["elapsed_s"]), 60)
+        print(f"[AiProfile] 会话进行中: {info['tag']} | 应用 {info['package']} | 已 {minutes:02d}:{seconds:02d}")
+        print(f"-> 标签({len(info['labels'])}): {', '.join(info['labels']) or '无'}")
+        print(f"-> 输出目录: {info['output_dir']}")
+        if info["elapsed_s"] > 6 * 3600:
+            print("-> 该会话已超过 6 小时，可能是上次忘记结束；确认无用可执行 aiprofile abort。")
+
+    elif args.cmd == "abort":
+        info = SessionManager().abort_session()
+        if not info:
+            print("[AiProfile] 当前没有需要放弃的会话。")
+        else:
+            print(f"[AiProfile] 已放弃会话 {info['tag']}（{info['package']}），本地已有数据不受影响。")
 
     elif args.cmd == "mark":
         mgr = SessionManager()

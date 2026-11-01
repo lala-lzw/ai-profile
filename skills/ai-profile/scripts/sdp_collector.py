@@ -173,11 +173,15 @@ class SdpCollector:
 
         output_csv.parent.mkdir(parents=True, exist_ok=True)
         pull_res = self.adb.run("pull", remote_csv, str(output_csv), timeout=timeout)
-        self.adb.shell(f"rm -rf {remote_tmp_dir}")
 
         if not pull_res.ok or not output_csv.exists() or output_csv.stat().st_size == 0:
-            raise RuntimeError(f"从设备拉取 CSV 失败: {pull_res.stderr or pull_res.stdout}")
+            # 保留设备端数据，让用户重连后可再次执行 stop 重试
+            raise RuntimeError(
+                f"从设备拉取 CSV 失败: {pull_res.stderr or pull_res.stdout}。"
+                f"设备端数据仍保留在 {remote_csv}，重新连接后再次执行 stop 即可重试。"
+            )
 
+        self.adb.shell(f"rm -rf {remote_tmp_dir}")
         return output_csv
 
     def capture(

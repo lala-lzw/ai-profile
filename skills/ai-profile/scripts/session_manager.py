@@ -111,7 +111,7 @@ class SessionManager:
 
         elapsed = round(time.time() - session["start_time"], 2)
         marker = {
-            "name": label_name.strip(),
+            "name": (label_name or "").strip() or "Marker",
             "time_s": elapsed,
             "timestamp_iso": datetime.now().isoformat()
         }
@@ -132,13 +132,29 @@ class SessionManager:
         raw_csv = out_dir / "raw" / f"sdp_{session['tag']}.csv"
         remote_tmp_dir = session["remote_tmp_dir"]
 
-        # 优雅通知 sdpcli flush 并拉取 CSV
-        self.collector.stop_continuous(remote_tmp_dir, raw_csv)
+        # 上一次 stop 已拉到本地但后续步骤失败时，直接复用，不再依赖设备端（已被清理）
+        if raw_csv.exists() and raw_csv.stat().st_size > 0:
+            print(f"[AiProfile] 本地已有原始数据，跳过拉取: {raw_csv}")
+        else:
+            try:
+                self.collector.stop_continuous(remote_tmp_dir, raw_csv)
+            except Exception as exc:
+                raise RuntimeError(
+                    f"{exc}\n"
+                    "会话仍保持未结束，可重新连接设备后再次 stop；"
+                    "若数据确已不可恢复，用 abort 放弃该会话。"
+                ) from exc
 
-        # 补充截图与内存信息
-        screen_png = out_dir / "capture.png"
-        self.adb.capture_screenshot(screen_png)
-        mem_info = self.adb.get_process_memory(session["package"])
+        # 截图与内存仅作补充信息，失败不应阻止出报告
+        try:
+            self.adb.capture_screenshot(out_dir / "capture.png")
+        except Exception as exc:
+            print(f"[AiProfile] 截图失败，已跳过: {exc}")
+        try:
+            mem_info = self.adb.get_process_memory(session["package"])
+        except Exception as exc:
+            print(f"[AiProfile] 内存信息获取失败，已跳过: {exc}")
+            mem_info = {"total_pss_mb": 0.0, "graphics_pss_mb": 0.0}
 
         # 进行分段标签分析
         analyzer = MetricsAnalyzer(fps_baseline=session["fps"])
@@ -170,3 +186,28 @@ class SessionManager:
             "duration_s": round(time.time() - session["start_time"], 1)
         }
 
+    def describe_session(self) -> Optional[dict[str, Any]]:
+        """返回当前会话的概要（含已进行时长与输出目录），无会话时返回 None"""
+        session = self.get_current_session()
+        if not session:
+            return None
+        return {
+            "package": session.get("package"),
+            "tag": session.get("tag"),
+            "serial": session.get("serial"),
+            "period_ms": session.get("period_ms"),
+            "elapsed_s": round(time.time() - session.get("start_time", time.time()), 1),
+            "labels": [m.get("name") for m in session.get("labels", [])],
+            "output_dir": session.get("output_dir"),
+        }
+
+    def abort_session(self) -> Optional[dict[str, Any]]:
+        """放弃当前会话：停掉设备端采样并清除状态。已拉取到本地的数据不会被删除。"""
+        info = self.describe_session()
+        try:
+            self.adb.shell("killall -9 sdpcli 2>/dev/null")
+        except Exception:
+            pass  # 设备已断连时仍要能清除本地状态
+        if SESSION_STATE_FILE.exists():
+            SESSION_STATE_FILE.unlink()
+        return info
